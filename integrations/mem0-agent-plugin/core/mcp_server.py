@@ -8,6 +8,7 @@ import os
 import sys
 from typing import Any
 
+import local_backend
 import telemetry
 from memory_core import (
     CODING_MEMORY_CATEGORY_NAMES,
@@ -64,6 +65,30 @@ TOOL_SCHEMA = {
         },
     },
     "required": ["query"],
+    "additionalProperties": False,
+}
+REMEMBER_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "text": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "kind": {"type": "string", "enum": ["trap", "rule", "state", "preference"]},
+        "scope": {"type": "string", "enum": ["project", "personal"]},
+        "triggers": {"type": "array", "items": {"type": "string"}},
+        "evidence": {"type": "string"},
+        "verify": {"type": "string"},
+        "verified_at": {"type": "string"},
+        "review_after": {"type": "string"},
+    },
+    "required": ["text", "kind", "scope", "triggers"],
+    "additionalProperties": False,
+}
+SUPERSEDE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "old_id": {"type": "string", "minLength": 1},
+        "new_id": {"type": "string", "minLength": 1},
+    },
+    "required": ["old_id", "new_id"],
     "additionalProperties": False,
 }
 
@@ -129,6 +154,41 @@ def call_search_memories(arguments: Any, cwd: str | None = None) -> str:
     return format_search_result(result)
 
 
+def _local_tool(name: str, arguments: Any, cwd: str | None) -> str:
+    backend, config = local_backend.selection()
+    if backend != "local":
+        raise ToolInputError("Local memory tools are unavailable.")
+    schema = REMEMBER_SCHEMA if name == "remember_memory" else SUPERSEDE_SCHEMA
+    if not isinstance(arguments, dict) or set(arguments) - set(schema["properties"]):
+        raise ToolInputError("Invalid memory arguments.")
+    if set(schema["required"]) - set(arguments):
+        raise ToolInputError("Missing required memory arguments.")
+    if name == "remember_memory":
+        text = arguments["text"]
+        if not isinstance(text, str) or not text.strip() or len(text.encode("utf-8")) > 4096:
+            raise ToolInputError("text must be non-empty and at most 4 KB.")
+        if arguments["kind"] not in {"trap", "rule", "state", "preference"}:
+            raise ToolInputError("Invalid memory kind.")
+        if arguments["scope"] not in {"project", "personal"}:
+            raise ToolInputError("Invalid memory scope.")
+        if not isinstance(arguments["triggers"], list) or not all(
+            isinstance(value, str) and value.strip() for value in arguments["triggers"]
+        ):
+            raise ToolInputError("triggers must be a list of non-empty strings.")
+        for optional in ("evidence", "verify", "verified_at", "review_after"):
+            if optional in arguments and not isinstance(arguments[optional], str):
+                raise ToolInputError(f"{optional} must be a string.")
+    elif not all(isinstance(arguments[key], str) and arguments[key].strip() for key in ("old_id", "new_id")):
+        raise ToolInputError("old_id and new_id must be non-empty strings.")
+    repo = resolve_repo(cwd or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
+    payload = {**local_backend.identity(config, repo), **arguments}
+    response, _, _ = local_backend.request(
+        config, "/v1/remember" if name == "remember_memory" else "/v1/supersede",
+        payload, timeout=120,
+    )
+    return json.dumps(response, ensure_ascii=False)
+
+
 def _workspace_cwd(params: dict[str, Any]) -> str | None:
     meta = params.get("_meta")
     if not isinstance(meta, dict):
@@ -171,37 +231,45 @@ def handle_request(message: Any) -> dict[str, Any] | None:
     if method == "ping":
         return {"jsonrpc": "2.0", "id": request_id, "result": {}}
     if method == "tools/list":
+        tools = [
+            {
+                "name": TOOL_NAME, "description": TOOL_DESCRIPTION, "inputSchema": TOOL_SCHEMA,
+                "annotations": {"readOnlyHint": True, "idempotentHint": True, "openWorldHint": True},
+            }
+        ]
+        try:
+            backend, _ = local_backend.selection()
+        except local_backend.LocalBackendError:
+            backend = "local"
+        if backend == "local":
+            tools.extend([
+                {"name": "remember_memory", "description": "Store an explicit local memory.",
+                 "inputSchema": REMEMBER_SCHEMA},
+                {"name": "supersede_memory", "description": "Supersede a local memory by ID.",
+                 "inputSchema": SUPERSEDE_SCHEMA},
+            ])
         return {
             "jsonrpc": "2.0",
             "id": request_id,
             "result": {
-                "tools": [
-                    {
-                        "name": TOOL_NAME,
-                        "description": TOOL_DESCRIPTION,
-                        "inputSchema": TOOL_SCHEMA,
-                        "annotations": {
-                            "readOnlyHint": True,
-                            "idempotentHint": True,
-                            "openWorldHint": True,
-                        },
-                    }
-                ]
+                "tools": tools
             },
         }
     if method == "tools/call":
         params = message.get("params") or {}
-        if params.get("name") != TOOL_NAME:
+        name = params.get("name")
+        if name not in {TOOL_NAME, "remember_memory", "supersede_memory"}:
             result = _tool_response("Unknown Mem0 tool.", is_error=True)
         else:
             try:
                 result = _tool_response(
                     call_search_memories(params.get("arguments"), _workspace_cwd(params))
+                    if name == TOOL_NAME else _local_tool(name, params.get("arguments"), _workspace_cwd(params))
                 )
             except ToolInputError as exc:
                 result = _tool_response(str(exc), is_error=True)
             except Exception:
-                result = _tool_response("Memory search failed.", is_error=True)
+                result = _tool_response("Memory search failed." if name == TOOL_NAME else "Memory request failed.", is_error=True)
         return {"jsonrpc": "2.0", "id": request_id, "result": result}
     if request_id is None:
         return None

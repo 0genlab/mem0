@@ -12,6 +12,7 @@ import time
 import uuid
 from pathlib import Path
 
+import local_backend
 import telemetry
 from memory_core import (
     EvidenceStore,
@@ -196,12 +197,20 @@ def automatic_flush_enabled() -> bool:
     }
 
 
+def backend_ready() -> bool:
+    try:
+        backend, _ = local_backend.selection()
+    except local_backend.LocalBackendError:
+        return False
+    return backend == "local" or bool(api_key())
+
+
 def schedule_periodic_checkpoint(
     store: EvidenceStore, hook_input: dict, repo, session_id: str,
 ) -> bool:
     if (
         not automatic_flush_enabled()
-        or not api_key()
+        or not backend_ready()
         or not store.checkpoint_due(repo.identity, session_id)
     ):
         return False
@@ -225,7 +234,7 @@ def schedule_idle_flush(
     store: EvidenceStore, hook_input: dict, repo, session_id: str,
 ) -> bool:
     delay = _idle_flush_seconds()
-    if delay <= 0 or not automatic_flush_enabled() or not api_key():
+    if delay <= 0 or not automatic_flush_enabled() or not backend_ready():
         return False
     if store.has_inflight_flush(repo.identity, session_id):
         return False

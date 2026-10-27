@@ -7,6 +7,19 @@ Claude Code forgets everything between sessions. This plugin fixes that. Install
 
 <Info>Current plugin version: `0.3.1`.</Info>
 
+## Local Backend In This Fork
+
+This fork also supports a personal service on `127.0.0.1`, shared with
+Codex. It stores memories and indexes on your computer, and uses AIHubMix
+`gpt-6.1-terra` and `embed-v-4-0` for extraction and embeddings.
+Selected captured text and search queries are sent to AIHubMix.
+
+Follow `integrations/local-memory/README.md` in this fork to start the
+service and install `mem0-local@0genlab-memory`. The local plugin does not
+require a Mem0 Platform key. It adds `remember_memory` and
+`supersede_memory` tools, including evidence, verification, and review dates.
+Automatic lessons remain unverified until explicitly supported by evidence.
+
 ## Prerequisites
 
 1. A Mem0 Platform account and API key (starts with `m0-`):

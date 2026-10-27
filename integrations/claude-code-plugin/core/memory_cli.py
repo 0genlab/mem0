@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 
+import local_backend
 import telemetry
 from memory_core import (
     EvidenceStore,
@@ -22,10 +23,15 @@ from memory_core import (
 
 def _print_status(value: dict) -> None:
     last = value.get("last_operation") or {}
+    backend = value.get("backend", "platform")
     print(f"Mem0: {'paused' if value['paused'] else 'active'}")
     print(f"Repository: {value['repo_id']}")
     print(f"Local data: {value['data_dir']}")
-    print(f"API key: {'configured' if value['api_key_configured'] else 'missing'}")
+    print(f"Backend: {backend}")
+    if backend == "local":
+        print(f"Local service: {value['local_service']}")
+    else:
+        print(f"API key: {'configured' if value['api_key_configured'] else 'missing'}")
     print(
         "Saved on this computer: "
         f"{value['events']} session details, {value['flushes']} memory updates"
@@ -90,15 +96,19 @@ def main() -> int:
         repo = resolve_repo(os.getcwd())
         telemetry.record("control", repo=repo, action=args.command)
         if args.command == "status":
+            diagnostic = doctor(os.getcwd())
+            backend = diagnostic.get("backend", "platform")
             result = {
                 **store.status(repo.identity),
                 "repo_id": repo.identity,
                 "app_id": repo.app_id,
                 "project_id": repo.project_id,
                 "directory": repo.directory,
-                "user_id": user_id(),
+                "user_id": diagnostic["user_id"] if backend == "local" else user_id(),
                 "data_dir": str(data_dir()),
-                "api_key_configured": bool(api_key()),
+                "api_key_configured": bool(api_key()) if backend == "platform" else False,
+                "backend": backend,
+                "local_service": diagnostic["checks"].get("local_service", {}).get("detail"),
             }
             if args.json:
                 print(json.dumps(result, indent=2, default=str))
@@ -121,6 +131,16 @@ def main() -> int:
             store.set_setting("paused", "false")
             print("Mem0 resumed saving and searching memories.")
         elif args.command == "forget":
+            try:
+                backend, _ = local_backend.selection()
+            except local_backend.LocalBackendError:
+                backend = "local"
+            if backend == "local":
+                print(
+                    "Local service memory deletion is not supported; no data changed. "
+                    "Use supersede_memory to replace a lesson."
+                )
+                return 1
             if not args.yes:
                 print(
                     "Refusing to delete data without --yes. Add --remote to also "

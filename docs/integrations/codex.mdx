@@ -9,6 +9,18 @@ Add persistent memory to [**OpenAI Codex**](https://openai.com/codex/) with the 
 
 Sidekick is available only in the [Claude Code plugin](/integrations/claude-code#sidekick-agent).
 
+## Local Backend In This Fork
+
+This fork also supports personal local memory through the `mem0-local` plugin.
+It uses a single loopback service with persistent local storage and AIHubMix
+for extraction and embeddings. A Mem0 Platform key is not required in local
+mode. See `integrations/local-memory/README.md` in the repository for setup,
+local-service authentication, structured lessons, and installation.
+
+The hosted setup below remains the default. Local memory is selected only
+by an explicit local configuration; captured text still reaches the selected
+AIHubMix models for inference.
+
 ## Prerequisites
 
 Before setting up Mem0 with Codex, ensure you have:
