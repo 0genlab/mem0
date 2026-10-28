@@ -22,7 +22,7 @@ class LocalConfig:
     user_id: str
 
 
-PROFILE_BANKS = ("personal", "work-profile")
+PROFILE_BANKS = ("personal", "work-profile", "investigate")
 
 
 def _config_path() -> Path:

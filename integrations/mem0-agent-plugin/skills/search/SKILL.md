@@ -12,7 +12,8 @@ query.
 When the local tool offers `bank`, pass `--bank` as that argument. Omit it
 for the current project's work memories. Use `personal` only when the user
 asks for personal background or preferences; use `work-profile` for saved
-work summaries. These profiles require local configuration and are never
+work summaries and `investigate` for past production investigation cases.
+These profiles require local configuration and are never
 searched automatically. Do not retry an unavailable bank against another
 bank or the hosted backend. Profile searches do not support `scope=dir`.
 

@@ -23,7 +23,7 @@ SERVICE_ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG = Path.home() / ".config/mem0-local/config.json"
 LABEL = "com.0genlab.mem0-local"
 MARKETPLACE = "0genlab-memory"
-LOCAL_PLUGIN_VERSION = "0.3.5"
+LOCAL_PLUGIN_VERSION = "0.3.6"
 LABEL_PATTERN = re.compile(r"[A-Za-z0-9]+(?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9]+(?:[A-Za-z0-9-]*[A-Za-z0-9])?)+")
 
 

@@ -65,11 +65,11 @@ The optional `service_label` config field defaults to the legacy label. Only
 dot-separated alphanumeric/hyphen label components are accepted. Use `--config`
 on subsequent `status` and `start` commands for the personal instance. Both
 banks still use AIHubMix inference; the personal bank is not an offline model.
-The bank router (`project`, `personal`, `work-profile`) is implemented by the
+The bank router (`project`, `personal`, `work-profile`, `investigate`) is implemented by the
 agent plugin. Automatic capture remains work-only; personal memories require
 explicit actions, with no personal capture hooks.
 
-In the work configuration, configure the two explicit profile routes:
+In the work configuration, configure the explicit profile routes:
 
 ```json
 {
@@ -82,6 +82,10 @@ In the work configuration, configure the two explicit profile routes:
     "work-profile": {
       "project_id": "work-profile",
       "app_id": "work-profile"
+    },
+    "investigate": {
+      "project_id": "investigate-cases",
+      "app_id": "investigate-cases"
     }
   }
 }
@@ -90,7 +94,8 @@ In the work configuration, configure the two explicit profile routes:
 These are additional fields, not a replacement for the rest of the work
 configuration. Namespace IDs come from this trusted configuration, never
 tool input. Search, remember and supersede tools accept `bank=project`
-(default), `personal`, or `work-profile`. Profile searches support `repo`
+(default), `personal`, `work-profile`, or `investigate`. `investigate`
+holds production investigation cases on the work service. Profile searches support `repo`
 and `mine`, not `dir`. A missing profile fails without falling back to
 another bank. Personal writes require `scope=personal`.
 The existing work hooks and spool remain unchanged; the personal bank is

@@ -21,7 +21,7 @@ from memory_core import (
 )
 
 PROTOCOL_VERSION = "2024-11-05"
-BANKS = ("project", "personal", "work-profile")
+BANKS = ("project", "personal", "work-profile", "investigate")
 BANK_PROPERTY = {
     "type": "string",
     "enum": list(BANKS),

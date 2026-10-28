@@ -8,7 +8,8 @@ description: Acknowledge a "remember this" request and make sure it is captured 
 In local mode, when `remember_memory` is available, use it to save an explicit
 request with a concise fact, its kind, scope, triggers, and supporting evidence.
 Use `bank=personal` for explicitly requested personal facts or long-term
-preferences, `bank=work-profile` for work summaries, and the default
+preferences, `bank=work-profile` for work summaries, `bank=investigate` for
+production investigation cases, and the default
 `bank=project` for this project's experience. Personal entries use
 `scope=personal`. Select a profile only when the user requests that destination;
 do not copy a personal entry into the work bank. Confirm storage only after a

@@ -45,6 +45,10 @@ def banks(tmp_path, monkeypatch):
                 "project_id": "work-profile",
                 "app_id": "work-profile",
             },
+            "investigate": {
+                "project_id": "investigate-cases",
+                "app_id": "investigate-cases",
+            },
         },
     }
     work_path.write_text(json.dumps(work))
@@ -73,7 +77,7 @@ def test_schema_and_project_default_are_compatible(banks, monkeypatch):
     assert len(tools) == 3
     for tool in tools:
         schema = tool["inputSchema"]
-        assert schema["properties"]["bank"]["enum"] == ["project", "personal", "work-profile"]
+        assert schema["properties"]["bank"]["enum"] == ["project", "personal", "work-profile", "investigate"]
         assert "bank" not in schema["required"]
         assert schema["additionalProperties"] is False
 
@@ -129,6 +133,7 @@ def test_profiles_route_without_cwd_or_spool(banks, monkeypatch):
     for bank, project, url in (
         ("personal", "personal-profile", "http://127.0.0.1:8770"),
         ("work-profile", "work-profile", "http://127.0.0.1:8769"),
+        ("investigate", "investigate-cases", "http://127.0.0.1:8769"),
     ):
         for cwd in ("/tmp/repo/sub", "/tmp/another"):
             assert "lesson" in call("search_memories", {"query": "lesson", "bank": bank}, cwd)
@@ -267,17 +272,18 @@ def test_personal_config_fails_closed(banks, monkeypatch, mutation):
     assert call("supersede_memory", {"old_id": "1", "new_id": "2", "bank": "personal"})["isError"]
 
 
+@pytest.mark.parametrize("bank", ["work-profile", "investigate"])
 @pytest.mark.parametrize("mutation", ["missing", "invalid-id"])
-def test_work_profile_config_fails_closed(banks, monkeypatch, mutation):
+def test_work_profile_config_fails_closed(banks, monkeypatch, mutation, bank):
     work_path, work, _, _, _ = banks
     if mutation == "missing":
-        del work["memory_banks"]["work-profile"]
+        del work["memory_banks"][bank]
     else:
-        work["memory_banks"]["work-profile"]["app_id"] = "*"
+        work["memory_banks"][bank]["app_id"] = "*"
     work_path.write_text(json.dumps(work))
     monkeypatch.setattr(local_backend, "request", lambda *a, **k: pytest.fail("HTTP called"))
     monkeypatch.setattr(mcp_server, "search_memories", lambda *a, **k: pytest.fail("project fallback"))
-    assert call("search_memories", {"query": "q", "bank": "work-profile"})["isError"]
+    assert call("search_memories", {"query": "q", "bank": bank})["isError"]
     assert call(
         "remember_memory",
         {
@@ -285,12 +291,12 @@ def test_work_profile_config_fails_closed(banks, monkeypatch, mutation):
             "kind": "rule",
             "scope": "project",
             "triggers": [],
-            "bank": "work-profile",
+            "bank": bank,
         },
     )["isError"]
 
 
-@pytest.mark.parametrize("bank", ["personal", "work-profile"])
+@pytest.mark.parametrize("bank", ["personal", "work-profile", "investigate"])
 @pytest.mark.parametrize("invalid", [None, "", "relative/data", "\x00"])
 @pytest.mark.parametrize("config_name", ["personal", "work"])
 def test_profile_data_dir_required(banks, monkeypatch, bank, config_name, invalid):
@@ -306,7 +312,7 @@ def test_profile_data_dir_required(banks, monkeypatch, bank, config_name, invali
     assert call("search_memories", {"query": "q", "bank": bank})["isError"]
 
 
-@pytest.mark.parametrize("bank", ["personal", "work-profile"])
+@pytest.mark.parametrize("bank", ["personal", "work-profile", "investigate"])
 @pytest.mark.parametrize("alias", ["same", "symlink"])
 def test_profile_shared_data_dir_fails_closed(banks, monkeypatch, bank, alias):
     work_path, work, personal_path, personal, _ = banks
@@ -325,7 +331,7 @@ def test_profile_shared_data_dir_fails_closed(banks, monkeypatch, bank, alias):
     assert call("supersede_memory", {"old_id": "1", "new_id": "2", "bank": bank})["isError"]
 
 
-@pytest.mark.parametrize("bank", ["personal", "work-profile"])
+@pytest.mark.parametrize("bank", ["personal", "work-profile", "investigate"])
 @pytest.mark.parametrize("field", ["project_id", "app_id"])
 @pytest.mark.parametrize(
     "invalid", [None, 12, "", " ", "*", "bad*id", " leading", "trailing ", "bad\nid", "x" * 257, "界" * 86]
