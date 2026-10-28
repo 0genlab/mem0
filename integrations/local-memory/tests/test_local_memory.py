@@ -1,10 +1,13 @@
+import hashlib
 import http.client
 import json
 import os
+import sqlite3
 import sys
 import threading
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -34,6 +37,8 @@ class FakeMemory:
         self.fail_after_on = None
         self.calls = 0
         self.last_search_filters = None
+        self.vector_store = self
+        self.fail_delete = False
 
     def add(self, text, *, infer, user_id, agent_id, metadata):
         assert infer is False
@@ -56,6 +61,18 @@ class FakeMemory:
                 and metadata.get("record_id") == filters["record_id"]
             ][:top_k]
         }
+
+    def get(self, *, vector_id):
+        item = self.items.get(vector_id)
+        if item is None:
+            return None
+        text, user, project, metadata = item
+        return SimpleNamespace(id=vector_id, payload={"data": text, "user_id": user, "agent_id": project, **metadata})
+
+    def delete(self, *, vector_id):
+        if self.fail_delete:
+            raise RuntimeError("vector unavailable")
+        self.items.pop(vector_id)
 
     def search(self, query, *, filters, top_k, threshold):
         assert threshold == 0
@@ -117,6 +134,28 @@ def search(**kwargs):
         "scope": "repo",
         **kwargs,
     }
+
+
+def deletion(record, text, **kwargs):
+    return {
+        "user_id": "u",
+        "project_id": "p",
+        "app_id": "codex",
+        "record_id": record["id"],
+        "expected_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        **kwargs,
+    }
+
+
+def history_db(path, entries):
+    with sqlite3.connect(path / "history.sqlite3") as connection:
+        connection.execute("CREATE TABLE IF NOT EXISTS history (memory_id TEXT, old_memory TEXT, new_memory TEXT)")
+        connection.executemany("INSERT INTO history VALUES (?, ?, NULL)", entries)
+
+
+def history_rows(path):
+    with sqlite3.connect(path / "history.sqlite3") as connection:
+        return connection.execute("SELECT memory_id, old_memory FROM history").fetchall()
 
 
 def test_capture_replay_and_empty_extraction(setup):
@@ -440,3 +479,176 @@ def test_reject_nonloopback_before_opening_store(monkeypatch, tmp_path):
         main()
     assert exc.value.code == 2
     assert not (tmp_path / "token").exists()
+
+
+def test_delete_one_checks_exact_identity_hash_and_purges_only_target(tmp_path):
+    fake = FakeMemory()
+    store = LocalStore(tmp_path, memory=fake)
+    try:
+        text = "personal 原文"
+        target = store.remember(remember(text=text))
+        other = store.remember(remember(text="keep me"))
+        history_db(tmp_path, [("vector-1", text), ("vector-2", "keep me")])
+        request = deletion(target, text)
+        for bad in (
+            {**request, "user_id": "other"},
+            {**request, "project_id": "other"},
+            {**request, "app_id": "other"},
+            {**request, "expected_sha256": "0" * 64},
+            {**request, "expected_sha256": "not-a-hash"},
+            {**request, "expected_sha256": "A" * 64},
+            {**request, "dry_run": "false"},
+            {**request, "dry_run": 0},
+        ):
+            with pytest.raises(InvalidRequest):
+                store.delete_one(bad)
+        assert store.delete_one({**request, "dry_run": True})["status"] == "active"
+        assert len(fake.items) == 2
+        assert store.delete_one(request) == {"record_id": target["id"], "status": "deleted"}
+        assert store.delete_one(request)["status"] == "deleted"
+        row = store.db.execute("SELECT text, metadata, text_sha256 FROM records WHERE id=?", (target["id"],)).fetchone()
+        assert tuple(row) == ("", "{}", request["expected_sha256"])
+        assert "vector-1" not in fake.items
+        assert history_rows(tmp_path) == [("vector-2", "keep me")]
+        assert [item["id"] for item in store.search(search())["results"]] == [other["id"]]
+        with pytest.raises(InvalidRequest):
+            store.delete_one({**request, "app_id": "other"})
+    finally:
+        store.close()
+
+
+def test_delete_refuses_vector_identity_mismatch(tmp_path):
+    fake = FakeMemory()
+    store = LocalStore(tmp_path, memory=fake)
+    try:
+        target = store.remember(remember(text="target"))
+        other = store.remember(remember(text="other"))
+        history_db(tmp_path, [("vector-1", "target"), ("vector-2", "other")])
+        fake.items["vector-1"] = fake.items["vector-2"]
+        with pytest.raises(RuntimeError, match="vector identity mismatch"):
+            store.delete_one(deletion(target, "target"))
+        assert "vector-2" in fake.items
+        assert history_rows(tmp_path) == [("vector-1", "target"), ("vector-2", "other")]
+        assert [item["id"] for item in store.search(search())["results"]] == [other["id"]]
+    finally:
+        store.close()
+
+
+def test_http_delete_one_rejects_bad_schema(setup):
+    store, _ = setup
+    target = store.remember(remember(text="target"))
+    history_db(Path(store.history_path).parent, [("vector-1", "target")])
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler_for(store, "t" * 32))
+    thread = threading.Thread(target=server.serve_forever)
+    thread.start()
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
+        for request in (
+            {**deletion(target, "target"), "expected_sha256": "bad"},
+            {**deletion(target, "target"), "dry_run": 1},
+        ):
+            conn.request(
+                "POST", "/v1/delete-one", body=json.dumps(request), headers={"Authorization": f"Bearer {'t' * 32}"}
+            )
+            response = conn.getresponse()
+            assert response.status == 400
+            response.read()
+        conn.request(
+            "POST",
+            "/v1/delete-one",
+            body=json.dumps(deletion(target, "target", dry_run=True)),
+            headers={"Authorization": f"Bearer {'t' * 32}"},
+        )
+        response = conn.getresponse()
+        assert response.status == 200
+        assert json.loads(response.read())["status"] == "active"
+        conn.request(
+            "POST",
+            "/v1/delete-one",
+            body=json.dumps(deletion(target, "target")),
+            headers={"Authorization": f"Bearer {'t' * 32}"},
+        )
+        response = conn.getresponse()
+        assert response.status == 200
+        assert json.loads(response.read())["status"] == "deleted"
+        conn.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+def test_delete_retries_after_vector_failure_and_restart(tmp_path):
+    fake = FakeMemory()
+    store = LocalStore(tmp_path, memory=fake)
+    target = store.remember(remember(text="secret"))
+    other = store.remember(remember(text="unrelated"))
+    history_db(tmp_path, [("vector-1", "secret"), ("vector-2", "unrelated")])
+    fake.fail_delete = True
+    with pytest.raises(RuntimeError, match="vector unavailable"):
+        store.delete_one(deletion(target, "secret"))
+    assert [item["id"] for item in store.search(search())["results"]] == [other["id"]]
+    assert (
+        store.db.execute("SELECT status, text, metadata FROM records WHERE id=?", (target["id"],)).fetchone()[0]
+        == "deleting"
+    )
+    store.close()
+    fake.fail_delete = False
+    reopened = LocalStore(tmp_path, memory=fake)
+    try:
+        assert reopened.delete_one(deletion(target, "secret"))["status"] == "deleted"
+        assert history_rows(tmp_path) == [("vector-2", "unrelated")]
+        assert list(fake.items) == ["vector-2"]
+    finally:
+        reopened.close()
+
+
+def test_delete_retries_history_failure_after_vector_removed(tmp_path):
+    fake = FakeMemory()
+    store = LocalStore(tmp_path, memory=fake)
+    target = store.remember(remember(text="secret"))
+    with pytest.raises(sqlite3.OperationalError):
+        store.delete_one(deletion(target, "secret"))
+    assert fake.items == {}
+    assert store.db.execute("SELECT status FROM records WHERE id=?", (target["id"],)).fetchone()[0] == "deleting"
+    store.close()
+    history_db(tmp_path, [("vector-1", "secret"), ("unrelated", "keep")])
+    reopened = LocalStore(tmp_path, memory=fake)
+    try:
+        assert reopened.delete_one(deletion(target, "secret"))["status"] == "deleted"
+        assert history_rows(tmp_path) == [("unrelated", "keep")]
+    finally:
+        reopened.close()
+
+
+def test_delete_pending_vector_and_replay_does_not_restore(tmp_path):
+    fake = FakeMemory()
+    fake.fail_after_on = 1
+    store = LocalStore(tmp_path, memory=fake)
+    with pytest.raises(RuntimeError):
+        store.capture(capture())
+    row = store.db.execute("SELECT id, text FROM records WHERE status='pending'").fetchone()
+    target = {"id": row[0]}
+    text = row[1]
+    history_db(tmp_path, [("vector-1", text)])
+    fake.fail_after_on = None
+    assert store.delete_one(deletion(target, text))["status"] == "deleted"
+    assert store.capture(capture()) == {"memory_count": 0, "results": [], "status": "succeeded"}
+    assert fake.calls == 1
+    assert history_rows(tmp_path) == []
+    store.close()
+
+
+def test_delete_superseded_record_without_touching_replacement(tmp_path):
+    fake = FakeMemory()
+    store = LocalStore(tmp_path, memory=fake)
+    try:
+        old = store.remember(remember(text="old"))
+        new = store.remember(remember(text="new"))
+        store.supersede({**search(), "old_id": old["id"], "new_id": new["id"]})
+        history_db(tmp_path, [("vector-1", "old"), ("vector-2", "new")])
+        assert store.delete_one(deletion(old, "old"))["status"] == "deleted"
+        assert [item["id"] for item in store.search(search())["results"]] == [new["id"]]
+        assert history_rows(tmp_path) == [("vector-2", "new")]
+    finally:
+        store.close()

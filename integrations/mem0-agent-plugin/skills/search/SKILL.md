@@ -9,6 +9,13 @@ Call `search_memories` with the user's question. Treat `--top-k`, `--category`,
 `--scope`, and `--run-id` as tool arguments instead of including them in the
 query.
 
+When the local tool offers `bank`, pass `--bank` as that argument. Omit it
+for the current project's work memories. Use `personal` only when the user
+asks for personal background or preferences; use `work-profile` for saved
+work summaries. These profiles require local configuration and are never
+searched automatically. Do not retry an unavailable bank against another
+bank or the hosted backend. Profile searches do not support `scope=dir`.
+
 Omit `top_k` to use Mem0's configured default. Omit `category` to search every
 category. Omit `scope` to use the configured default, normally `repo`: this
 repository's shared memory, which everyone who works in it contributes to,

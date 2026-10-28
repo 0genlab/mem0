@@ -1,8 +1,8 @@
-# Personal development memory
+# Local development memory
 
 This fork adds a local memory service for Codex and Claude Code. A single
-process owns persistent Qdrant and SQLite storage; native plugins connect to
-it over authenticated loopback HTTP. Existing Mem0 Platform integrations
+process per configuration owns persistent Qdrant and SQLite storage; native
+plugins connect to it over authenticated loopback HTTP. Existing Mem0 Platform integrations
 remain the default when no local configuration is present.
 
 The service uses AIHubMix for extraction (`gpt-6.1-terra`) and embeddings
@@ -46,6 +46,57 @@ The LaunchAgent runs a login shell so it can use your existing exported
 `AIHUBMIX_API_KEY`. It does not copy that key into its plist. Service logs are
 under the data directory. The service listens only on `127.0.0.1:8769`;
 initialize with `--port` to use another available port.
+
+For separate work and personal banks, keep the existing work configuration,
+port `8769`, data directory, token file, and default LaunchAgent label
+`com.0genlab.mem0-local` unchanged. Initialize the personal bank in a different
+configuration directory with its own token, data directory, port, and label:
+
+```sh
+hatch -e local-memory run python integrations/local-memory/manage.py \
+  --config ~/.config/mem0-local-personal/config.json init \
+  --data-dir ~/.local/share/mem0-local-personal --port 8770 \
+  --service-label com.0genlab.mem0-local.personal
+hatch -e local-memory run python integrations/local-memory/manage.py \
+  --config ~/.config/mem0-local-personal/config.json start
+```
+
+The optional `service_label` config field defaults to the legacy label. Only
+dot-separated alphanumeric/hyphen label components are accepted. Use `--config`
+on subsequent `status` and `start` commands for the personal instance. Both
+banks still use AIHubMix inference; the personal bank is not an offline model.
+The bank router (`project`, `personal`, `work-profile`) is implemented by the
+agent plugin. Automatic capture remains work-only; personal memories require
+explicit actions, with no personal capture hooks.
+
+In the work configuration, configure the two explicit profile routes:
+
+```json
+{
+  "memory_banks": {
+    "personal": {
+      "config": "/absolute/path/to/mem0-local-personal/config.json",
+      "project_id": "personal-profile",
+      "app_id": "personal-profile"
+    },
+    "work-profile": {
+      "project_id": "work-profile",
+      "app_id": "work-profile"
+    }
+  }
+}
+```
+
+These are additional fields, not a replacement for the rest of the work
+configuration. Namespace IDs come from this trusted configuration, never
+tool input. Search, remember and supersede tools accept `bank=project`
+(default), `personal`, or `work-profile`. Profile searches support `repo`
+and `mine`, not `dir`. A missing profile fails without falling back to
+another bank. Personal writes require `scope=personal`.
+The existing work hooks and spool remain unchanged; the personal bank is
+accessed directly by explicit tools and has no background capture queue.
+Keep client sessions containing only personal material paused for automatic
+work capture; selecting a tool bank does not classify the rest of a session.
 
 ## Install the local plugins
 
@@ -97,9 +148,23 @@ Local mode always restricts results to the requesting user and project;
 current directory and descendants while retaining personal records.
 This is a personal service, not a multi-user authorization system.
 
-Local `forget` commands are refused without changing data: service memory
-deletion is not implemented. Use `supersede_memory` to replace a conclusion;
-this hides the old lesson from recall while retaining its history.
+The restricted service endpoint `POST /v1/delete-one` deletes one catalog record
+only after checking its `user_id`, `project_id`, `app_id`, `record_id`, and
+`expected_sha256` (lowercase SHA-256 of the original UTF-8 text). Set
+`dry_run: true` to check without changing data. It returns `record_id` and
+`status`, and a dry run also returns `sha256` and `dry_run`. The same request
+is idempotent after deletion; wrong identity or hash is rejected. There is no
+namespace or bulk deletion endpoint. Deletion hides the record immediately,
+then removes its exact vector and SDK history rows by `memory_id`, and finally
+retains a text-free catalog tombstone for retries. A failure remains pending
+and retries at service startup or on the same request. Use `supersede_memory`
+to replace a conclusion while retaining its history.
+
+For example, after calculating the hash of the original record text:
+
+```json
+{"user_id":"u","project_id":"p","app_id":"codex","record_id":"record-uuid","expected_sha256":"<64 lowercase hex characters>","dry_run":true}
+```
 
 No historical private memory files are imported automatically. Existing
 `AGENTS.md` and `CLAUDE.md` remain the authority for development instructions.

@@ -1,7 +1,7 @@
 ---
 name: search
 description: Search memories from earlier Claude Code sessions in this repository. Use it when earlier work may already explain the code, error, decision, or command you need, so you can avoid repeating file reads, searches, or experiments.
-argument-hint: "[question] [--top-k number] [--category category-name] [--scope repo|dir|mine] [--run-id session-id]"
+argument-hint: "[question] [--top-k number] [--category category-name] [--scope repo|dir|mine] [--run-id session-id] [--bank project|personal|work-profile]"
 disable-model-invocation: true
 ---
 
@@ -10,6 +10,13 @@ disable-model-invocation: true
 Call `search_memories` with the user's question. Treat `--top-k`, `--category`,
 `--scope`, and `--run-id` as tool arguments instead of including them in the
 query.
+
+When the local tool offers `bank`, pass `--bank` as that argument. Omit it
+for the current project's work memories. Use `personal` only when the user
+asks for personal background or preferences; use `work-profile` for saved
+work summaries. These profiles require local configuration and are never
+searched automatically. Do not retry an unavailable bank against another
+bank or the hosted backend. Profile searches do not support `scope=dir`.
 
 Omit `top_k` to use Mem0's configured default. Omit `category` to search every
 category. Omit `scope` to use the configured default, normally `repo`: this

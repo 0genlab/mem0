@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 import plistlib
+import re
 import secrets
 import shlex
 import subprocess
@@ -22,6 +23,15 @@ SERVICE_ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG = Path.home() / ".config/mem0-local/config.json"
 LABEL = "com.0genlab.mem0-local"
 MARKETPLACE = "0genlab-memory"
+LOCAL_PLUGIN_VERSION = "0.3.5"
+LABEL_PATTERN = re.compile(r"[A-Za-z0-9]+(?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9]+(?:[A-Za-z0-9-]*[A-Za-z0-9])?)+")
+
+
+def service_label(config: dict) -> str:
+    label = config.get("service_label", LABEL)
+    if not isinstance(label, str) or len(label) > 128 or not LABEL_PATTERN.fullmatch(label):
+        raise ValueError("Invalid service_label.")
+    return label
 
 
 def private_directory(path: Path) -> None:
@@ -64,12 +74,15 @@ def read_config(path: Path) -> dict:
     for name in ("token_file", "data_dir", "python"):
         if not isinstance(config.get(name), str) or not Path(config[name]).is_absolute():
             raise ValueError(f"Configuration requires an absolute {name} path.")
+    service_label(config)
     return config
 
 
-def initialize(path: Path, data_dir: Path, port: int) -> dict:
+def initialize(path: Path, data_dir: Path, port: int, label: str | None = None) -> dict:
     if path.exists():
         return read_config(path)
+    if label is not None:
+        service_label({"service_label": label})
     data_dir = data_dir.expanduser().absolute()
     private_directory(data_dir)
     private_directory(path.parent)
@@ -85,6 +98,8 @@ def initialize(path: Path, data_dir: Path, port: int) -> dict:
         "data_dir": str(data_dir),
         "python": sys.executable,
     }
+    if label is not None:
+        config["service_label"] = label
     write_private(path, (json.dumps(config, indent=2) + "\n").encode("utf-8"))
     return config
 
@@ -129,12 +144,13 @@ def install_service(path: Path, config: dict) -> Path:
     if sys.platform != "darwin":
         raise ValueError("Automatic service installation currently requires macOS.")
     logs = Path(config["data_dir"]) / "logs"
+    label = service_label(config)
     private_directory(logs)
     # A login shell reads the user's existing environment setup without copying
     # model API credentials into a plist or a generated configuration file.
     command = shlex.join([config["python"], str(SERVICE_ROOT / "manage.py"), "--config", str(path), "serve"])
     content = {
-        "Label": LABEL,
+        "Label": label,
         "ProgramArguments": ["/bin/zsh", "-lic", "exec " + command],
         "WorkingDirectory": str(ROOT),
         "RunAtLoad": True,
@@ -144,7 +160,7 @@ def install_service(path: Path, config: dict) -> Path:
         "StandardOutPath": str(logs / "service.log"),
         "StandardErrorPath": str(logs / "service-error.log"),
     }
-    target = Path.home() / "Library/LaunchAgents" / f"{LABEL}.plist"
+    target = Path.home() / "Library/LaunchAgents" / f"{label}.plist"
     write_private(target, plistlib.dumps(content))
     return target
 
@@ -152,12 +168,13 @@ def install_service(path: Path, config: dict) -> Path:
 def start_service(path: Path, config: dict) -> None:
     target = install_service(path, config)
     domain = f"gui/{os.getuid()}"
+    label = service_label(config)
     loaded = (
-        subprocess.run(["launchctl", "print", f"{domain}/{LABEL}"], capture_output=True, check=False).returncode == 0
+        subprocess.run(["launchctl", "print", f"{domain}/{label}"], capture_output=True, check=False).returncode == 0
     )
     if not loaded:
         subprocess.run(["launchctl", "bootstrap", domain, str(target)], check=True)
-    subprocess.run(["launchctl", "kickstart", "-k", f"{domain}/{LABEL}"], check=True)
+    subprocess.run(["launchctl", "kickstart", "-k", f"{domain}/{label}"], check=True)
 
 
 def prepare_plugins(path: Path, config: dict) -> Path:
@@ -174,6 +191,7 @@ def prepare_plugins(path: Path, config: dict) -> Path:
         manifest_path = target / (".codex-plugin" if host == "codex" else ".claude-plugin") / "plugin.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         manifest["name"] = "mem0-local"
+        manifest["version"] = LOCAL_PLUGIN_VERSION
         manifest["description"] = "Personal development memory stored on this computer."
         if host == "claude-code":
             manifest.get("userConfig", {}).pop("api_key", None)
@@ -231,6 +249,7 @@ def main() -> int:
     init = commands.add_parser("init")
     init.add_argument("--data-dir", type=Path, default=Path.home() / ".local/share/mem0-local")
     init.add_argument("--port", type=int, default=8769)
+    init.add_argument("--service-label")
     for name in ("serve", "start", "status", "prepare-plugins"):
         commands.add_parser(name)
     args = parser.parse_args()
@@ -239,7 +258,7 @@ def main() -> int:
         if args.command == "init":
             if not 1 <= args.port <= 65535:
                 parser.error("--port must be in 1..65535")
-            config = initialize(path, args.data_dir, args.port)
+            config = initialize(path, args.data_dir, args.port, args.service_label)
             print(json.dumps({"config": str(path), "url": config["url"], "data_dir": config["data_dir"]}))
             return 0
         config = read_config(path)

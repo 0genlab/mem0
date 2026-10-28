@@ -22,16 +22,15 @@ class LocalConfig:
     user_id: str
 
 
-def selection() -> tuple[str, LocalConfig | None]:
-    override = os.environ.get("MEM0_CODE_BACKEND", "").strip().lower()
-    if override and override not in {"local", "platform"}:
-        raise LocalBackendError("Unknown MEM0_CODE_BACKEND")
-    if override == "platform":
-        return "platform", None
+PROFILE_BANKS = ("personal", "work-profile")
+
+
+def _config_path() -> Path:
     explicit = os.environ.get("MEM0_LOCAL_CONFIG")
-    path = Path(explicit).expanduser() if explicit else Path.home() / ".config/mem0-local/config.json"
-    if not path.is_file() and not explicit and override != "local":
-        return "platform", None
+    return Path(explicit).expanduser() if explicit else Path.home() / ".config/mem0-local/config.json"
+
+
+def _load_config(path: Path) -> tuple[dict[str, Any], LocalConfig]:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict) or raw.get("backend") != "local":
@@ -57,11 +56,95 @@ def selection() -> tuple[str, LocalConfig | None]:
             raise LocalBackendError("Local token_file is required")
         if not isinstance(user, str) or not user.strip() or set(user.strip()) == {"*"}:
             raise LocalBackendError("Local user_id is required and cannot be a wildcard")
-        return "local", LocalConfig(url.rstrip("/"), Path(token_file).expanduser(), user.strip())
+        return raw, LocalConfig(url.rstrip("/"), Path(token_file).expanduser(), user.strip())
     except (OSError, ValueError, TypeError) as exc:
         if isinstance(exc, LocalBackendError):
             raise
         raise LocalBackendError("Invalid local backend config") from None
+
+
+def selection() -> tuple[str, LocalConfig | None]:
+    override = os.environ.get("MEM0_CODE_BACKEND", "").strip().lower()
+    if override and override not in {"local", "platform"}:
+        raise LocalBackendError("Unknown MEM0_CODE_BACKEND")
+    if override == "platform":
+        return "platform", None
+    explicit = os.environ.get("MEM0_LOCAL_CONFIG")
+    path = _config_path()
+    if not path.is_file() and not explicit and override != "local":
+        return "platform", None
+    return "local", _load_config(path)[1]
+
+
+def _token(config: LocalConfig) -> str:
+    try:
+        token = config.token_file.read_text(encoding="utf-8").strip()
+    except OSError:
+        raise LocalBackendError("Local token file unavailable") from None
+    if not token or "\n" in token or "\r" in token:
+        raise LocalBackendError("Invalid local token file")
+    return token
+
+
+def _profile_id(value: Any) -> str:
+    if (
+        not isinstance(value, str)
+        or not value
+        or value != value.strip()
+        or "*" in value
+        or any(ord(char) < 32 or ord(char) == 127 for char in value)
+        or len(value.encode("utf-8")) > 256
+    ):
+        raise LocalBackendError("Invalid profile bank identity")
+    return value
+
+
+def _data_dir(raw: dict[str, Any]) -> Path:
+    value = raw.get("data_dir")
+    if not isinstance(value, str) or not value.strip():
+        raise LocalBackendError("Profile data_dir is required")
+    try:
+        path = Path(value).expanduser()
+        if not path.is_absolute():
+            raise LocalBackendError("Profile data_dir must be an absolute path")
+        return path.resolve()
+    except (OSError, RuntimeError, ValueError) as exc:
+        if isinstance(exc, LocalBackendError):
+            raise
+        raise LocalBackendError("Invalid profile data_dir") from None
+
+
+def profile_route(bank: str) -> tuple[LocalConfig, dict[str, str]]:
+    if bank not in PROFILE_BANKS:
+        raise LocalBackendError("Unknown memory bank")
+    backend, work = selection()
+    if backend != "local" or work is None:
+        raise LocalBackendError("Profile banks require a local backend")
+    raw, _ = _load_config(_config_path())
+    banks = raw.get("memory_banks")
+    entry = banks.get(bank) if isinstance(banks, dict) else None
+    keys = {"project_id", "app_id", "config"} if bank == "personal" else {"project_id", "app_id"}
+    if not isinstance(entry, dict) or set(entry) != keys:
+        raise LocalBackendError("Profile bank is not configured")
+    project_id = _profile_id(entry["project_id"])
+    app_id = _profile_id(entry["app_id"])
+    personal_entry = banks.get("personal") if isinstance(banks, dict) else None
+    personal_path = personal_entry.get("config") if isinstance(personal_entry, dict) else None
+    if not isinstance(personal_path, str) or not Path(personal_path).is_absolute():
+        raise LocalBackendError("Personal config must be an absolute path")
+    personal_raw, personal = _load_config(Path(personal_path))
+    if _data_dir(raw) == _data_dir(personal_raw):
+        raise LocalBackendError("Profile banks must have distinct data directories")
+    config = work
+    if bank == "personal":
+        config = personal
+        if (
+            config.url == work.url
+            or config.token_file.resolve() == work.token_file.resolve()
+            or _token(config) == _token(work)
+        ):
+            raise LocalBackendError("Personal service must have a distinct URL and token")
+    return config, {"user_id": config.user_id, "project_id": project_id, "app_id": app_id}
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -74,12 +157,7 @@ def request(
 ) -> tuple[dict[str, Any], int, int]:
     if endpoint not in {"/health", "/v1/capture", "/v1/search", "/v1/remember", "/v1/supersede"}:
         raise LocalBackendError("Unsupported local endpoint")
-    try:
-        token = config.token_file.read_text(encoding="utf-8").strip()
-    except OSError:
-        raise LocalBackendError("Local token file unavailable") from None
-    if not token or "\n" in token or "\r" in token:
-        raise LocalBackendError("Invalid local token file")
+    token = _token(config)
     raw = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
     req = urllib.request.Request(
         config.url + endpoint,

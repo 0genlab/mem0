@@ -1,7 +1,9 @@
 """Single-process local memory catalog and SDK adapter."""
 
+import hashlib
 import json
 import os
+import re
 import sqlite3
 import stat
 import threading
@@ -125,7 +127,9 @@ class LocalStore:
         if stat.S_IMODE(info.st_mode) != 0o700:
             root.chmod(0o700)
         self.memory = memory if memory is not None else self._create_memory(root)
+        self.history_path = root / "history.sqlite3"
         self.db = sqlite3.connect(root / "catalog.sqlite3", check_same_thread=False)
+        self.db.execute("PRAGMA secure_delete=ON")
         self.db.execute("""
             CREATE TABLE IF NOT EXISTS packets (
                 user_id TEXT NOT NULL, project_id TEXT NOT NULL, packet_id TEXT NOT NULL,
@@ -138,7 +142,16 @@ class LocalStore:
                 metadata TEXT NOT NULL, status TEXT NOT NULL, superseded_by TEXT
             )""")
         self.db.execute("CREATE INDEX IF NOT EXISTS records_packet ON records(user_id, project_id, packet_id)")
+        columns = {row[1] for row in self.db.execute("PRAGMA table_info(records)")}
+        if "text_sha256" not in columns:
+            self.db.execute("ALTER TABLE records ADD COLUMN text_sha256 TEXT")
+        if "app_id" not in columns:
+            self.db.execute("ALTER TABLE records ADD COLUMN app_id TEXT")
         self.db.commit()
+        self.db.row_factory = sqlite3.Row
+        for row in self.db.execute("SELECT * FROM records WHERE status='deleting'").fetchall():
+            with suppress(Exception):
+                self._finish_deletion(row)
 
     @staticmethod
     def _create_memory(root):
@@ -324,7 +337,7 @@ class LocalStore:
                 )
                 self.db.commit()
             rows = self.db.execute(
-                "SELECT * FROM records WHERE user_id=? AND project_id=? AND packet_id=? ORDER BY rowid",
+                "SELECT * FROM records WHERE user_id=? AND project_id=? AND packet_id=? AND status='active' ORDER BY rowid",
                 (user, project, packet),
             ).fetchall()
             results = [self._record(row) for row in rows]
@@ -415,6 +428,78 @@ class LocalStore:
             self.db.execute("UPDATE records SET superseded_by=? WHERE id=?", (new, old))
             self.db.commit()
             return {"ok": True, "old_id": old, "new_id": new}
+
+    def _finish_deletion(self, row):
+        mid = row["memory_id"]
+        if mid is None:
+            existing = self.memory.get_all(
+                filters={"user_id": row["user_id"], "agent_id": row["project_id"], "record_id": row["id"]},
+                top_k=2,
+            ).get("results", [])
+            if len(existing) > 1:
+                raise RuntimeError("multiple vectors for pending record")
+            if existing:
+                item = existing[0]
+                if (item.get("metadata") or {}).get("record_id") != row["id"] or not item.get("id"):
+                    raise RuntimeError("pending vector identity mismatch")
+                mid = str(item["id"])
+                self.db.execute("UPDATE records SET memory_id=? WHERE id=?", (mid, row["id"]))
+                self.db.commit()
+        if mid is not None:
+            point = self.memory.vector_store.get(vector_id=mid)
+            if point is not None:
+                payload = point.payload
+                if (
+                    str(point.id) != mid
+                    or payload.get("record_id") != row["id"]
+                    or payload.get("user_id") != row["user_id"]
+                    or payload.get("agent_id") != row["project_id"]
+                ):
+                    raise RuntimeError("vector identity mismatch")
+                self.memory.vector_store.delete(vector_id=mid)
+                if self.memory.vector_store.get(vector_id=mid) is not None:
+                    raise RuntimeError("vector deletion not confirmed")
+            # The SDK's delete writes the original text back into history. Purge only
+            # this exact memory_id after the vector is gone, including on retries.
+            with sqlite3.connect(self.history_path) as history:
+                history.execute("PRAGMA secure_delete=ON")
+                history.execute("DELETE FROM history WHERE memory_id=?", (mid,))
+        self.db.execute("UPDATE records SET status='deleted' WHERE id=? AND status='deleting'", (row["id"],))
+        self.db.commit()
+
+    def delete_one(self, body):
+        with self.lock:
+            user, project, app = _identity(body)
+            record_id = _text(body.get("record_id"), "record_id", 128)
+            expected = body.get("expected_sha256")
+            if not isinstance(expected, str) or re.fullmatch(r"[0-9a-f]{64}", expected) is None:
+                raise InvalidRequest("invalid expected_sha256")
+            dry_run = body.get("dry_run", False)
+            if type(dry_run) is not bool:
+                raise InvalidRequest("invalid dry_run")
+            self.db.row_factory = sqlite3.Row
+            row = self.db.execute("SELECT * FROM records WHERE id=?", (record_id,)).fetchone()
+            if row is None or row["user_id"] != user or row["project_id"] != project:
+                raise InvalidRequest("record not found for identity")
+            metadata = json.loads(row["metadata"])
+            if row["status"] in ("deleting", "deleted"):
+                if row["text_sha256"] != expected or row["app_id"] != app:
+                    raise InvalidRequest("record identity or hash mismatch")
+            elif metadata.get("app_id") != app or hashlib.sha256(row["text"].encode("utf-8")).hexdigest() != expected:
+                raise InvalidRequest("record identity or hash mismatch")
+            if dry_run:
+                return {"record_id": record_id, "status": row["status"], "sha256": expected, "dry_run": True}
+            if row["status"] == "deleted":
+                return {"record_id": record_id, "status": "deleted"}
+            if row["status"] != "deleting":
+                self.db.execute(
+                    "UPDATE records SET status='deleting', text='', metadata='{}', text_sha256=?, app_id=? WHERE id=?",
+                    (expected, app, record_id),
+                )
+                self.db.commit()
+                row = self.db.execute("SELECT * FROM records WHERE id=?", (record_id,)).fetchone()
+            self._finish_deletion(row)
+            return {"record_id": record_id, "status": "deleted"}
 
     def close(self):
         with self.lock:

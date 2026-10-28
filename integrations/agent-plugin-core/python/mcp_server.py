@@ -14,12 +14,19 @@ from memory_core import (
     CODING_MEMORY_CATEGORY_NAMES,
     PLUGIN_VERSION,
     SEARCH_SCOPES,
+    MemorySearchResult,
     format_search_result,
     resolve_repo,
     search_memories,
 )
 
 PROTOCOL_VERSION = "2024-11-05"
+BANKS = ("project", "personal", "work-profile")
+BANK_PROPERTY = {
+    "type": "string",
+    "enum": list(BANKS),
+    "description": "Memory bank. 'project' (default) retains repository behavior; profiles are explicit local banks.",
+}
 TOOL_NAME = "search_memories"
 TOOL_DESCRIPTION = (
     "Search memories from earlier work in this repository. Use it before "
@@ -52,7 +59,8 @@ TOOL_SCHEMA = {
             "description": (
                 "Which memories to search. 'repo' (default) is the whole repository's "
                 "shared memory plus your own preferences, 'dir' narrows the shared "
-                "part to the current directory, 'mine' is your preferences alone."
+                "part to the current directory, 'mine' is your preferences alone. "
+                "Profile banks search their fixed bank with 'repo' or 'mine'; 'dir' is unavailable."
             ),
         },
         "run_id": {
@@ -63,6 +71,7 @@ TOOL_SCHEMA = {
                 "saved in that session. Omit to recall memories across sessions."
             ),
         },
+        "bank": BANK_PROPERTY,
     },
     "required": ["query"],
     "additionalProperties": False,
@@ -78,6 +87,7 @@ REMEMBER_SCHEMA = {
         "verify": {"type": "string"},
         "verified_at": {"type": "string"},
         "review_after": {"type": "string"},
+        "bank": BANK_PROPERTY,
     },
     "required": ["text", "kind", "scope", "triggers"],
     "additionalProperties": False,
@@ -87,6 +97,7 @@ SUPERSEDE_SCHEMA = {
     "properties": {
         "old_id": {"type": "string", "minLength": 1},
         "new_id": {"type": "string", "minLength": 1},
+        "bank": BANK_PROPERTY,
     },
     "required": ["old_id", "new_id"],
     "additionalProperties": False,
@@ -99,11 +110,11 @@ class ToolInputError(ValueError):
 
 def _validate_arguments(
     arguments: Any,
-) -> tuple[str, int | None, str | None, str | None, str | None]:
+) -> tuple[str, int | None, str | None, str | None, str | None, str]:
     if not isinstance(arguments, dict):
         raise ToolInputError("Search arguments must be an object.")
 
-    unknown = set(arguments) - {"query", "top_k", "category", "scope", "run_id"}
+    unknown = set(arguments) - {"query", "top_k", "category", "scope", "run_id", "bank"}
     if unknown:
         raise ToolInputError(f"Unknown search argument: {sorted(unknown)[0]}")
 
@@ -134,11 +145,40 @@ def _validate_arguments(
             raise ToolInputError("run_id must be a non-empty string.")
         run_id = run_id.strip()
 
-    return query, top_k, category, scope, run_id
+    bank = _bank(arguments)
+    if bank != "project" and scope == "dir":
+        raise ToolInputError("Profile banks do not support directory scope.")
+    return query, top_k, category, scope, run_id, bank
+
+
+def _bank(arguments: dict[str, Any]) -> str:
+    bank = arguments.get("bank", "project")
+    if not isinstance(bank, str) or bank not in BANKS:
+        raise ToolInputError("Invalid memory bank.")
+    return bank
 
 
 def call_search_memories(arguments: Any, cwd: str | None = None) -> str:
-    query, top_k, category, scope, run_id = _validate_arguments(arguments)
+    query, top_k, category, scope, run_id, bank = _validate_arguments(arguments)
+    if bank != "project":
+        config, identity = local_backend.profile_route(bank)
+        payload: dict[str, Any] = {
+            **identity, "query": query, "top_k": top_k if top_k is not None else 3,
+            "scope": scope or "repo",
+        }
+        if category:
+            payload["category"] = category
+        if run_id:
+            payload["run_id"] = run_id
+        response, _, _ = local_backend.request(config, "/v1/search", payload)
+        if not isinstance(response.get("results"), list):
+            raise local_backend.LocalBackendError("Invalid local search response")
+        memories = [
+            {**item, "metadata": {**(item.get("metadata") or {}), "backend": "local"}}
+            for item in response["results"][:payload["top_k"]]
+            if isinstance(item, dict) and (item.get("metadata") or {}).get("record_kind") != "task_episode"
+        ]
+        return format_search_result(MemorySearchResult(True, len(memories), 0, memories))
     repo = resolve_repo(cwd or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
     result = search_memories(
         None,
@@ -163,6 +203,7 @@ def _local_tool(name: str, arguments: Any, cwd: str | None) -> str:
         raise ToolInputError("Invalid memory arguments.")
     if set(schema["required"]) - set(arguments):
         raise ToolInputError("Missing required memory arguments.")
+    bank = _bank(arguments)
     if name == "remember_memory":
         text = arguments["text"]
         if not isinstance(text, str) or not text.strip() or len(text.encode("utf-8")) > 4096:
@@ -171,6 +212,8 @@ def _local_tool(name: str, arguments: Any, cwd: str | None) -> str:
             raise ToolInputError("Invalid memory kind.")
         if arguments["scope"] not in {"project", "personal"}:
             raise ToolInputError("Invalid memory scope.")
+        if bank == "personal" and arguments["scope"] != "personal":
+            raise ToolInputError("Personal bank requires personal scope.")
         if not isinstance(arguments["triggers"], list) or not all(
             isinstance(value, str) and value.strip() for value in arguments["triggers"]
         ):
@@ -180,8 +223,12 @@ def _local_tool(name: str, arguments: Any, cwd: str | None) -> str:
                 raise ToolInputError(f"{optional} must be a string.")
     elif not all(isinstance(arguments[key], str) and arguments[key].strip() for key in ("old_id", "new_id")):
         raise ToolInputError("old_id and new_id must be non-empty strings.")
-    repo = resolve_repo(cwd or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
-    payload = {**local_backend.identity(config, repo), **arguments}
+    if bank == "project":
+        repo = resolve_repo(cwd or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
+        identity = local_backend.identity(config, repo)
+    else:
+        config, identity = local_backend.profile_route(bank)
+    payload = {**{key: value for key, value in arguments.items() if key != "bank"}, **identity}
     response, _, _ = local_backend.request(
         config, "/v1/remember" if name == "remember_memory" else "/v1/supersede",
         payload, timeout=120,

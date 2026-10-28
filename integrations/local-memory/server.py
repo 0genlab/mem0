@@ -70,6 +70,7 @@ def handler_for(store, token):
                 "/v1/remember": store.remember,
                 "/v1/search": store.search,
                 "/v1/supersede": store.supersede,
+                "/v1/delete-one": store.delete_one,
             }
             action = routes.get(self.path)
             if action is None:
