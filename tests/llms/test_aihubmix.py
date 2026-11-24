@@ -94,12 +94,10 @@ def test_json_tools_and_no_openrouter_params(client, monkeypatch):
     )
     assert result == {"content": None, "tool_calls": [{"name": "save", "arguments": {"text": "hello"}}]}
     params = client.chat.completions.create.call_args.kwargs
+    # gpt-6 family is a reasoning model upstream (#7939): no sampling params or max_tokens.
     assert params == {
         "model": "gpt-6.1-terra",
         "messages": messages,
-        "temperature": 0.1,
-        "top_p": 0.1,
-        "max_tokens": 2000,
         "response_format": {"type": "json_object"},
         "tools": tools,
         "tool_choice": "required",
