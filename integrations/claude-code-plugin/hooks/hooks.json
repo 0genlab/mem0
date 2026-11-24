@@ -18,8 +18,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/adapters/claude/hook.py\" user-prompt --plugin-data-dir \"${CLAUDE_PLUGIN_DATA}\"",
-            "timeout": 6
+            "command": "MEM0_CODE_FIRST_PROMPT_TIMEOUT=\"${MEM0_CODE_FIRST_PROMPT_TIMEOUT:-8}\" python3 \"${CLAUDE_PLUGIN_ROOT}/adapters/claude/hook.py\" user-prompt --plugin-data-dir \"${CLAUDE_PLUGIN_DATA}\"",
+            "timeout": 10
           }
         ]
       }

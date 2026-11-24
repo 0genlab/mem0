@@ -71,9 +71,13 @@ def first_prompt_memory_output(store: EvidenceStore, hook_input: dict) -> dict:
         minimum_query_chars = 20
     if len(prompt.strip()) < max(minimum_query_chars, 1):
         return {}
+    try:
+        search_timeout = float(os.environ.get("MEM0_CODE_FIRST_PROMPT_TIMEOUT", "2"))
+    except ValueError:
+        search_timeout = 2.0
     result = search_memories(
         store, repo, session_id, bounded(prompt, 6000),
-        top_k=5, operation="first-prompt-search", timeout=2,
+        top_k=5, operation="first-prompt-search", timeout=min(max(search_timeout, 0.5), 30),
     )
     if not result.memories:
         return {}

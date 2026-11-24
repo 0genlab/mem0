@@ -179,6 +179,32 @@ def test_capture_replay_and_empty_extraction(setup):
     assert fake.calls == 1
 
 
+def test_capture_does_not_hold_store_lock_during_extraction(setup):
+    store, fake = setup
+    lock_free = []
+
+    def generate_response(messages, response_format=None):
+        fake.llm.calls += 1
+        fake.llm.last_messages = messages
+        acquired = []
+
+        def probe_lock():
+            ok = store.lock.acquire(timeout=1)
+            if ok:
+                store.lock.release()
+            acquired.append(ok)
+
+        probe = threading.Thread(target=probe_lock)
+        probe.start()
+        probe.join()
+        lock_free.append(acquired[0])
+        return json.dumps(fake.llm.lessons)
+
+    fake.llm.generate_response = generate_response
+    assert store.capture(capture())["memory_count"] == 1
+    assert lock_free == [True]
+
+
 def test_capture_accepts_native_batch_without_truncation(setup):
     store, fake = setup
     messages = [
