@@ -16,7 +16,7 @@ let keySeq = 0;
 const freshClient = () =>
   new MemoryClient({ apiKey: `test-api-key-identity-${keySeq++}` });
 
-// Selects by path; the ping and PostHog calls also land in the mock.
+// Selects by path; the ping call also lands in the mock.
 const findUrlOrNone = (mock: jest.Mock, needle: string): string | undefined =>
   mock.mock.calls
     .map((c: [string, RequestInit]) => c[0])

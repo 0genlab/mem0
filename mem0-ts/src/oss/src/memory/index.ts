@@ -44,25 +44,6 @@ import {
 } from "./memory.types";
 import { parse_vision_messages } from "../utils/memory";
 import { HistoryManager } from "../storage/base";
-import { captureClientEvent } from "../utils/telemetry";
-import {
-  detectScaleThresholdFromAddResult,
-  detectScaleThresholdFromTopK,
-  detectPerformanceSlowQuery,
-  detectTemporalUsageFromMetadata,
-  detectTemporalUsageFromSearch,
-  displayDecayUsageNotice,
-  displayFirstRunNotice,
-  displayPerformanceSlowQueryNotice,
-  displayScaleThresholdNotice,
-  displayTemporalUsageNotice,
-  getDecayFeatureErrorMessage,
-  getDecayUsageDeleteCountAfterSuccess,
-  getTemporalFeatureErrorMessage,
-  isDecayUsageDeleteEligible,
-  PerformanceSlowQueryTrigger,
-  ScaleThresholdTrigger,
-} from "../utils/notices";
 import { lemmatizeForBm25 } from "../utils/lemmatization";
 import {
   extractEntities,
@@ -78,7 +59,6 @@ import {
 import { getDefaultVectorStoreDbPath } from "../utils/sqlite";
 import { logger } from "../utils/logger";
 import { normalizeExpirationDate, payloadIsExpired } from "../utils/expiration";
-import { getOrCreateMem0UserId } from "../../../client/config";
 
 export class LLMError extends Error {
   readonly cause?: unknown;
@@ -212,7 +192,6 @@ export class Memory {
   private db: HistoryManager;
   private collectionName: string | undefined;
   private apiVersion: string;
-  telemetryId: string;
   private _initPromise: Promise<void>;
   private _initError?: Error;
   private _entityStore?: VectorStore;
@@ -250,7 +229,6 @@ export class Memory {
 
     this.collectionName = this.config.vectorStore.config.collectionName;
     this.apiVersion = this.config.version || "v1.0";
-    this.telemetryId = "anonymous";
 
     // Auto-detect embedding dimension (if needed), create vector store,
     // and initialize it. All public methods await this before proceeding.
@@ -288,8 +266,6 @@ export class Memory {
     // store (collections, tables, etc.) is ready before any public method
     // attempts to read or write.
     await this.vectorStore.initialize();
-
-    await this._initializeTelemetry();
   }
 
   /**
@@ -584,120 +560,6 @@ export class Memory {
     return parts.join("&");
   }
 
-  private async _initializeTelemetry() {
-    try {
-      await this._getTelemetryId();
-
-      // Capture initialization event
-      await captureClientEvent("init", this, {
-        api_version: this.apiVersion,
-        client_type: "Memory",
-        collection_name: this.collectionName,
-      });
-    } catch (error) {}
-  }
-
-  private async _getTelemetryId() {
-    try {
-      if (
-        !this.telemetryId ||
-        this.telemetryId === "anonymous" ||
-        this.telemetryId === "anonymous-supabase"
-      ) {
-        this.telemetryId =
-          (await getOrCreateMem0UserId()) ||
-          (await this.vectorStore.getUserId());
-        try {
-          await this.vectorStore.setUserId(this.telemetryId);
-        } catch {}
-      }
-      return this.telemetryId;
-    } catch (error) {
-      this.telemetryId = "anonymous";
-      return this.telemetryId;
-    }
-  }
-
-  private async _captureEvent(methodName: string, additionalData = {}) {
-    try {
-      await this._getTelemetryId();
-      await captureClientEvent(methodName, this, {
-        ...additionalData,
-        api_version: this.apiVersion,
-        collection_name: this.collectionName,
-      });
-    } catch (error) {
-      console.error(`Failed to capture ${methodName} event:`, error);
-    }
-  }
-
-  private async _displayFirstRunNotice(triggerFunction: string) {
-    try {
-      await this._getTelemetryId();
-      await displayFirstRunNotice(this, triggerFunction);
-    } catch {}
-  }
-
-  private async _displayDecayUsageNotice(trigger: {
-    triggerFunction: "delete" | "delete_all";
-    triggerSource: "delete_count" | "delete_all";
-    triggerReason: "repeated_deletes" | "bulk_delete";
-    deleteCount?: number;
-    deletedCount?: number;
-  }) {
-    try {
-      await this._getTelemetryId();
-      await displayDecayUsageNotice(this, trigger);
-    } catch {}
-  }
-
-  private async _displayTemporalUsageNotice(trigger: {
-    triggerFunction: "add" | "search";
-    triggerSource: "metadata" | "query" | "filter";
-    triggerReason:
-      | "date_like_metadata"
-      | "relative_phrase"
-      | "date_like_query"
-      | "date_range_filter";
-  }) {
-    try {
-      await this._getTelemetryId();
-      await displayTemporalUsageNotice(this, trigger);
-    } catch {}
-  }
-
-  private async _displayScaleThresholdNotice(trigger: ScaleThresholdTrigger) {
-    try {
-      await this._getTelemetryId();
-      await displayScaleThresholdNotice(this, trigger);
-    } catch {}
-  }
-
-  private async _displayPerformanceSlowQueryNotice(
-    trigger: PerformanceSlowQueryTrigger,
-  ) {
-    try {
-      await this._getTelemetryId();
-      await displayPerformanceSlowQueryNotice(this, trigger);
-    } catch {}
-  }
-
-  private async _getNoticeTelemetryId() {
-    try {
-      if (
-        !this.telemetryId ||
-        this.telemetryId === "anonymous" ||
-        this.telemetryId === "anonymous-supabase"
-      ) {
-        this.telemetryId = (await getOrCreateMem0UserId()) || "anonymous";
-      }
-      return this.telemetryId;
-    } catch {
-      this.telemetryId = "anonymous";
-      return this.telemetryId;
-    }
-  }
-
   static fromConfig(configDict: Record<string, any>): Memory {
     try {
       const config = MemoryConfigSchema.parse(configDict);
@@ -710,8 +572,9 @@ export class Memory {
 
   async updateProject(options: UpdateProjectOptions = {}): Promise<never> {
     if (options?.decay === true) {
-      await this._getNoticeTelemetryId();
-      throw new Error(await getDecayFeatureErrorMessage(this));
+      throw new Error(
+        "The decay parameter is not supported by the OSS Memory SDK.",
+      );
     }
 
     throw new Error("Project updates are not supported by the OSS Memory SDK.");
@@ -722,12 +585,8 @@ export class Memory {
     config: AddMemoryOptions,
   ): Promise<SearchResult> {
     if (config?.timestamp !== undefined) {
-      await this._getNoticeTelemetryId();
       throw new Error(
-        await getTemporalFeatureErrorMessage(this, {
-          triggerFunction: "add",
-          triggerParameter: "timestamp",
-        }),
+        "The timestamp parameter is not supported by the OSS Memory SDK.",
       );
     }
 
@@ -757,17 +616,7 @@ export class Memory {
       );
     }
 
-    const temporalUsageNotice = detectTemporalUsageFromMetadata(
-      config?.metadata,
-    );
-
     await this._ensureInitialized();
-    await this._captureEvent("add", {
-      message_count: Array.isArray(messages) ? messages.length : 1,
-      has_metadata: !!config.metadata,
-      has_filters: !!config.filters,
-      infer: config.infer,
-    });
     // Copy: scope keys are written into this object below, and the caller's next add() must not inherit them (#6796).
     const filters: SearchFilters = { ...(config.filters ?? {}) };
     const { infer = true } = config;
@@ -810,27 +659,6 @@ export class Memory {
       filters,
       infer,
     );
-
-    if (temporalUsageNotice) {
-      await this._displayTemporalUsageNotice({
-        triggerFunction: "add",
-        triggerSource: temporalUsageNotice.triggerSource,
-        triggerReason: temporalUsageNotice.triggerReason,
-      });
-    } else {
-      const scaleThresholdNotice = await detectScaleThresholdFromAddResult(
-        this,
-        vectorStoreResult,
-      );
-      if (scaleThresholdNotice) {
-        await this._displayScaleThresholdNotice({
-          triggerFunction: "add",
-          ...scaleThresholdNotice,
-        });
-      } else {
-        await this._displayFirstRunNotice("add");
-      }
-    }
 
     return {
       results: vectorStoreResult,
@@ -1293,7 +1121,6 @@ export class Memory {
     await this._ensureInitialized();
     const memory = await this.vectorStore.get(memoryId);
     if (!memory) {
-      await this._displayFirstRunNotice("get");
       return null;
     }
 
@@ -1318,15 +1145,13 @@ export class Memory {
       }
     }
 
-    const result = {
+    return {
       ...memoryItem,
       ...filters,
       ...(memory.payload.attributedTo && {
         attributedTo: memory.payload.attributedTo,
       }),
     };
-    await this._displayFirstRunNotice("get");
-    return result;
   }
 
   async search(
@@ -1334,19 +1159,10 @@ export class Memory {
     config: SearchMemoryOptions,
   ): Promise<SearchResult> {
     if (config?.referenceDate !== undefined) {
-      await this._getNoticeTelemetryId();
       throw new Error(
-        await getTemporalFeatureErrorMessage(this, {
-          triggerFunction: "search",
-          triggerParameter: "referenceDate",
-        }),
+        "The referenceDate parameter is not supported by the OSS Memory SDK.",
       );
     }
-
-    const temporalUsageNotice = detectTemporalUsageFromSearch(
-      query,
-      config?.filters,
-    );
 
     // Reject top-level entity params - must use filters instead
     rejectTopLevelEntityParams(config as Record<string, any>, "search");
@@ -1381,12 +1197,6 @@ export class Memory {
       showExpired = false,
     } = config;
 
-    await this._captureEvent("search", {
-      query_length: query.length,
-      topK,
-      has_filters: !!config.filters,
-    });
-
     let effectiveFilters: Record<string, any> = { ...normalizedFilters };
 
     // Apply enhanced metadata filtering if advanced operators are detected
@@ -1419,8 +1229,6 @@ export class Memory {
           "Example: filters: { user_id: 'u1' }",
       );
     }
-
-    const searchStartMs = Date.now();
 
     // Step 1: Preprocess query
     const queryLemmatized = lemmatizeForBm25(query);
@@ -1613,41 +1421,9 @@ export class Memory {
       }
     }
 
-    const result = {
+    return {
       results: finalResults,
     };
-    const searchElapsedMs = Date.now() - searchStartMs;
-    if (temporalUsageNotice) {
-      await this._displayTemporalUsageNotice({
-        triggerFunction: "search",
-        triggerSource: temporalUsageNotice.triggerSource,
-        triggerReason: temporalUsageNotice.triggerReason,
-      });
-    } else {
-      const scaleThresholdNotice = detectScaleThresholdFromTopK(topK);
-      if (scaleThresholdNotice) {
-        await this._displayScaleThresholdNotice({
-          triggerFunction: "search",
-          ...scaleThresholdNotice,
-        });
-      } else {
-        const performanceSlowQueryNotice = detectPerformanceSlowQuery(
-          searchElapsedMs,
-          topK,
-          results.length,
-        );
-        if (performanceSlowQueryNotice) {
-          await this._displayPerformanceSlowQueryNotice({
-            triggerFunction: "search",
-            triggerReason: "slow_query",
-            ...performanceSlowQueryNotice,
-          });
-        } else {
-          await this._displayFirstRunNotice("search");
-        }
-      }
-    }
-    return result;
   }
 
   async update(
@@ -1655,7 +1431,6 @@ export class Memory {
     config: string | UpdateMemoryOptions,
   ): Promise<{ message: string }> {
     await this._ensureInitialized();
-    await this._captureEvent("update", { memory_id: memoryId });
 
     const options: UpdateMemoryOptions =
       typeof config === "string" ? { text: config } : config;
@@ -1693,39 +1468,19 @@ export class Memory {
     }
 
     await this.updateMemory(memoryId, text, existingEmbeddings, updateMetadata);
-    const result = { message: "Memory updated successfully!" };
-    await this._displayFirstRunNotice("update");
-    return result;
+    return { message: "Memory updated successfully!" };
   }
 
   async delete(memoryId: string): Promise<{ message: string }> {
     await this._ensureInitialized();
-    await this._captureEvent("delete", { memory_id: memoryId });
     await this.deleteMemory(memoryId);
-    const result = { message: "Memory deleted successfully!" };
-    const deleteCount = getDecayUsageDeleteCountAfterSuccess();
-    if (isDecayUsageDeleteEligible(deleteCount)) {
-      await this._displayDecayUsageNotice({
-        triggerFunction: "delete",
-        triggerSource: "delete_count",
-        triggerReason: "repeated_deletes",
-        deleteCount,
-      });
-    } else {
-      await this._displayFirstRunNotice("delete");
-    }
-    return result;
+    return { message: "Memory deleted successfully!" };
   }
 
   async deleteAll(
     config: DeleteAllMemoryOptions,
   ): Promise<{ message: string }> {
     await this._ensureInitialized();
-    await this._captureEvent("delete_all", {
-      has_user_id: !!config.userId,
-      has_agent_id: !!config.agentId,
-      has_run_id: !!config.runId,
-    });
     const userId = validateAndTrimEntityId(config.userId, "userId");
     const agentId = validateAndTrimEntityId(config.agentId, "agentId");
     const runId = validateAndTrimEntityId(config.runId, "runId");
@@ -1768,30 +1523,16 @@ export class Memory {
       deletedCount += batch.length;
     }
 
-    const result = { message: "Memories deleted successfully!" };
-    if (deletedCount > 0) {
-      await this._displayDecayUsageNotice({
-        triggerFunction: "delete_all",
-        triggerSource: "delete_all",
-        triggerReason: "bulk_delete",
-        deletedCount,
-      });
-    } else {
-      await this._displayFirstRunNotice("delete_all");
-    }
-    return result;
+    return { message: "Memories deleted successfully!" };
   }
 
   async history(memoryId: string): Promise<any[]> {
     await this._ensureInitialized();
-    const result = await this.db.getHistory(memoryId);
-    await this._displayFirstRunNotice("history");
-    return result;
+    return this.db.getHistory(memoryId);
   }
 
   async reset(): Promise<void> {
     await this._ensureInitialized();
-    await this._captureEvent("reset");
     await this.db.reset();
 
     // Check provider before attempting deleteCol
@@ -1838,7 +1579,6 @@ export class Memory {
       console.error(this._initError);
     });
     await this._initPromise;
-    await this._displayFirstRunNotice("reset");
   }
 
   async getAll(config: GetAllMemoryOptions): Promise<SearchResult> {
@@ -1863,13 +1603,6 @@ export class Memory {
         run_id: validateAndTrimEntityId(config.filters?.run_id, "run_id"),
       }).filter(([, v]) => v !== undefined),
     );
-
-    await this._captureEvent("get_all", {
-      topK,
-      has_user_id: !!filters.user_id,
-      has_agent_id: !!filters.agent_id,
-      has_run_id: !!filters.run_id,
-    });
 
     // Validate filters contains at least one entity ID (snake_case)
     if (!filters.user_id && !filters.agent_id && !filters.run_id) {
@@ -1904,17 +1637,7 @@ export class Memory {
       }),
     }));
 
-    const result = { results };
-    const scaleThresholdNotice = detectScaleThresholdFromTopK(topK);
-    if (scaleThresholdNotice) {
-      await this._displayScaleThresholdNotice({
-        triggerFunction: "get_all",
-        ...scaleThresholdNotice,
-      });
-    } else {
-      await this._displayFirstRunNotice("get_all");
-    }
-    return result;
+    return { results };
   }
 
   private async createMemory(

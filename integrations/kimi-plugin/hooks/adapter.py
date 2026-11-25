@@ -16,7 +16,6 @@ CORE = BUNDLED_CORE if BUNDLED_CORE.is_dir() else HERE.parents[2] / "core" / "py
 sys.path.insert(0, str(CORE))
 
 import hook_runner  # noqa: E402
-import telemetry  # noqa: E402
 from memory_core import configure_harness, record_tool  # noqa: E402
 
 EVENTS = {
@@ -111,7 +110,6 @@ def main() -> int:
     sys.argv = [sys.argv[0], *EVENTS[event]]
     sys.stdin = io.StringIO(json.dumps(normalize(raw if isinstance(raw, dict) else {})))
     configure_harness("kimi", data_dir_name="kimi-plugin", source_tag="kimi_plugin")
-    telemetry.init(harness="kimi", source_tag="KIMI_PLUGIN")
     output = io.StringIO()
     with contextlib.redirect_stdout(output):
         result = hook_runner.run(

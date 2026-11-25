@@ -5,7 +5,6 @@ export const AUTH_ENDPOINTS = {
   REFRESH: "/auth/refresh",
   ME: "/auth/me",
   CHANGE_PASSWORD: "/auth/change-password",
-  ONBOARDING_COMPLETE: "/auth/onboarding-complete",
 } as const;
 
 export const MEMORY_ENDPOINTS = {

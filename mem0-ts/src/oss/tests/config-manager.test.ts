@@ -657,10 +657,6 @@ describe("Memory – LM Studio end-to-end flow", () => {
       LLMFactory: mockLlmFactory,
       HistoryManagerFactory: mockHistoryFactory,
     }));
-    jest.doMock("../src/utils/telemetry", () => ({
-      captureClientEvent: jest.fn().mockResolvedValue(undefined),
-      isTelemetryEnabled: jest.fn(() => false),
-    }));
 
     MemoryClass = require("../src/memory").Memory;
   });

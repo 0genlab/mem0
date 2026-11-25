@@ -17,7 +17,6 @@ CORE = BUNDLED_CORE if BUNDLED_CORE.is_dir() else HERE.parents[2] / "core" / "py
 sys.path.insert(0, str(CORE))
 
 import hook_runner  # noqa: E402
-import telemetry  # noqa: E402
 from memory_core import (  # noqa: E402
     configure_harness,
     record_tool,
@@ -130,7 +129,6 @@ def main() -> int:
         print(json.dumps(output))
         return 0
     configure_harness("antigravity", data_dir_name="antigravity-plugin", source_tag="antigravity_plugin")
-    telemetry.init(harness="antigravity", source_tag="ANTIGRAVITY_PLUGIN")
     if event == "PreInvocation":
         if payload.get("invocationNum") != 0:
             print(json.dumps({"injectSteps": []}))

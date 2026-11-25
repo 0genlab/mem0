@@ -56,44 +56,6 @@ event_app = typer.Typer(
 # entity_app and event_app registered after Memory commands to control panel ordering
 
 
-# ── Validated user identity (set by _get_backend_and_config) ──────────────
-
-_validated_user_email: str | None = None
-
-# ── Telemetry helper ─────────────────────────────────────────────────────
-
-
-def _fire_telemetry(command_name: str, extra: dict | None = None) -> None:
-    """Fire a PostHog telemetry event (non-blocking, never fails)."""
-    try:
-        from mem0_cli.telemetry import capture_event
-
-        props = {"command": command_name}
-        if extra:
-            props.update(extra)
-        capture_event(f"cli.{command_name}", props, pre_resolved_email=_validated_user_email)
-    except Exception:
-        pass
-
-
-@config_app.callback(invoke_without_command=True)
-def _config_callback(ctx: typer.Context) -> None:
-    if ctx.invoked_subcommand:
-        _fire_telemetry(f"config.{ctx.invoked_subcommand}")
-
-
-@entity_app.callback(invoke_without_command=True)
-def _entity_callback(ctx: typer.Context) -> None:
-    if ctx.invoked_subcommand:
-        _fire_telemetry(f"entity.{ctx.invoked_subcommand}")
-
-
-@event_app.callback(invoke_without_command=True)
-def _event_callback(ctx: typer.Context) -> None:
-    if ctx.invoked_subcommand:
-        _fire_telemetry(f"event.{ctx.invoked_subcommand}")
-
-
 # ── Helpers ───────────────────────────────────────────────────────────────
 
 
@@ -104,10 +66,8 @@ def _get_backend_and_config(
     """Build and return the Platform backend plus the loaded config.
 
     Validates the API key upfront via ``/v1/ping/`` and caches the
-    resolved user email for telemetry.
+    resolved user email.
     """
-    global _validated_user_email
-
     from mem0_cli.backend import get_backend
     from mem0_cli.backend.platform import AuthError
     from mem0_cli.config import load_config, save_config
@@ -133,12 +93,10 @@ def _get_backend_and_config(
     try:
         ping_data = backend.ping(timeout=5.0)
         email = ping_data.get("user_email") if isinstance(ping_data, dict) else None
-        if email:
-            _validated_user_email = email
-            if config.platform.user_email != email:
-                config.platform.user_email = email
-                with contextlib.suppress(Exception):
-                    save_config(config)
+        if email and config.platform.user_email != email:
+            config.platform.user_email = email
+            with contextlib.suppress(Exception):
+                save_config(config)
     except AuthError:
         print_error(
             err_console,
@@ -233,7 +191,6 @@ def main_callback(
     if version:
         from mem0_cli.commands.utils import cmd_version
 
-        _fire_telemetry("version")
         cmd_version()
         raise typer.Exit()
     if ctx.invoked_subcommand:
@@ -243,9 +200,6 @@ def main_callback(
         from mem0_cli.state import set_current_command
 
         set_current_command(ctx.invoked_subcommand)
-    if ctx.invoked_subcommand and ctx.invoked_subcommand != "init":
-        # init fires its own telemetry from init_cmd.run_init with full M1-M6 props.
-        _fire_telemetry(ctx.invoked_subcommand)
 
 
 # ── Memory: add ───────────────────────────────────────────────────────────
@@ -685,7 +639,6 @@ def delete(
 
     # ── Dispatch ─────────────────────────────────────────────────────
     if memory_id is not None:
-        _fire_telemetry("delete", {"delete_mode": "single"})
         from mem0_cli.commands.memory import cmd_delete
 
         backend = _get_backend(api_key, base_url)
@@ -699,7 +652,6 @@ def delete(
         )
 
     elif all_:
-        _fire_telemetry("delete", {"delete_mode": "all"})
         from mem0_cli.commands.memory import cmd_delete_all
 
         backend, config = _get_backend_and_config(api_key, base_url)
@@ -707,7 +659,6 @@ def delete(
         cmd_delete_all(backend, force=force, dry_run=dry_run, all_=project, **ids, output=output)
 
     else:  # --entity
-        _fire_telemetry("delete", {"delete_mode": "entity"})
         from mem0_cli.commands.entities import cmd_entities_delete
 
         backend = _get_backend(api_key, base_url)
@@ -1014,12 +965,6 @@ agent_rush_app = typer.Typer(
     no_args_is_help=True,
     rich_markup_mode="rich",
 )
-
-
-@agent_rush_app.callback(invoke_without_command=True)
-def _agent_rush_callback(ctx: typer.Context) -> None:
-    if ctx.invoked_subcommand:
-        _fire_telemetry(f"agent-rush.{ctx.invoked_subcommand}")
 
 
 @agent_rush_app.command(name="add")

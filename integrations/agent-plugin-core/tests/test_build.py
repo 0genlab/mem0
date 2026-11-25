@@ -90,7 +90,7 @@ def test_the_portable_bundle_declares_no_host_application(tmp_path: Path) -> Non
     identity = _harness_identity(build("mem0-agent-plugin", "portable", tmp_path / "portable"))
 
     assert identity["PLATFORM_APPLICATION"] == ""
-    # The PostHog-side label is still useful for grouping and stays populated.
+    # The plugin-side label stays populated.
     assert identity["HARNESS_ID"] == "coding-agent"
     assert identity["PLATFORM_SOURCE"] == "MEM0_PLUGIN"
 

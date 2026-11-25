@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "oss-to-platform-migrate.sh"
 
 
@@ -102,9 +101,6 @@ class MigrationHTTPServer:
                 body = self._read_json()
                 self._record(body)
                 parsed = urlparse(self.path)
-                if self.path == "/posthog":
-                    self._send_json(200, {"ok": True})
-                    return
                 if self.path == "/api/v1/auth/email_code/":
                     self._send_json(200, {"sent": True})
                     return
@@ -186,10 +182,6 @@ class MigrationHTTPServer:
         return Handler
 
 
-def alias_marker(anon_id: str, email: str) -> str:
-    return sha256(f"{anon_id}\0{email}".encode("utf-8")).hexdigest()
-
-
 def write_config(mem0_dir: Path, data: dict[str, Any]) -> None:
     mem0_dir.mkdir(parents=True, exist_ok=True)
     (mem0_dir / "config.json").write_text(json.dumps(data), encoding="utf-8")
@@ -217,7 +209,6 @@ def run_migration_script(
     env.update(
         {
             "MEM0_DIR": str(mem0_dir),
-            "MEM0_MIGRATE_TELEMETRY_URL": f"{server.url}/posthog",
         }
     )
     env.pop("MEM0_API_KEY", None)
@@ -251,7 +242,6 @@ def run_export_script(
     env.update(
         {
             "MEM0_DIR": str(mem0_dir),
-            "MEM0_MIGRATE_TELEMETRY_URL": f"{server.url}/posthog",
             "QDRANT_API_KEY": qdrant_api_key,
         }
     )
@@ -297,7 +287,6 @@ def run_import_script(
     env.update(
         {
             "MEM0_DIR": str(mem0_dir),
-            "MEM0_MIGRATE_TELEMETRY_URL": f"{server.url}/posthog",
             "MEM0_API_KEY": api_key,
         }
     )
@@ -340,7 +329,6 @@ def run_full_script(
     env.update(
         {
             "MEM0_DIR": str(mem0_dir),
-            "MEM0_MIGRATE_TELEMETRY_URL": f"{server.url}/posthog",
             "QDRANT_API_KEY": qdrant_api_key,
         }
     )
@@ -371,15 +359,9 @@ def run_full_script(
     return result, mem0_dir, output_path
 
 
-def posthog_events(server: MigrationHTTPServer) -> list[dict[str, Any]]:
-    return [request["body"] for request in server.requests if request["path"] == "/posthog"]
-
-
-def test_existing_api_key_authenticates_and_stitches_ids(tmp_path: Path) -> None:
+def test_existing_api_key_authenticates(tmp_path: Path) -> None:
     config = {
-        "user_id": "oss-123",
         "platform": {"api_key": "stored-key", "base_url": "https://api.mem0.ai"},
-        "telemetry": {"anonymous_id": "cli-456"},
     }
 
     with MigrationHTTPServer(ping_emails={"stored-key": "bob@example.com"}) as server:
@@ -391,19 +373,6 @@ def test_existing_api_key_authenticates_and_stitches_ids(tmp_path: Path) -> None
 
     updated = read_config(mem0_dir)
     assert updated["platform"] == config["platform"]
-    assert alias_marker("oss-123", "bob@example.com") in updated["telemetry"]["aliased_pairs"]
-    assert alias_marker("cli-456", "bob@example.com") in updated["telemetry"]["aliased_pairs"]
-
-    events = posthog_events(server)
-    event_names = [event["event"] for event in events]
-    assert "oss.migrate.started" in event_names
-    assert "oss.migrate.authenticated" in event_names
-    assert event_names.count("$identify") == 2
-
-    authenticated = next(event for event in events if event["event"] == "oss.migrate.authenticated")
-    assert authenticated["distinct_id"] == "bob@example.com"
-    assert authenticated["properties"]["local_anonymous_id"] == "oss-123"
-    assert authenticated["properties"]["authenticated_email"] == "bob@example.com"
 
 
 def test_email_code_authenticates_without_persisting_credentials(tmp_path: Path) -> None:
@@ -424,21 +393,11 @@ def test_email_code_authenticates_without_persisting_credentials(tmp_path: Path)
     assert verify_request["body"] == {"email": "alice@example.com", "code": "123456"}
     assert not any(request["path"] == "/api/v1/auth/email_code/" for request in server.requests)
 
-    updated = read_config(mem0_dir)
-    assert "api_key" not in updated.get("platform", {})
-    assert "user_email" not in updated.get("platform", {})
-    assert updated["user_id"]
-    assert alias_marker(updated["user_id"], "alice@example.com") in updated["telemetry"]["aliased_pairs"]
-
-    events = posthog_events(server)
-    assert [event["event"] for event in events].count("$identify") == 1
-    authenticated = next(event for event in events if event["event"] == "oss.migrate.authenticated")
-    assert authenticated["properties"]["auth_method"] == "email_code"
+    assert not (mem0_dir / "config.json").exists()
 
 
 def test_invalid_stored_key_falls_back_to_email_code(tmp_path: Path) -> None:
     config = {
-        "user_id": "oss-fallback",
         "platform": {"api_key": "bad-key", "base_url": "https://api.mem0.ai"},
     }
 
@@ -466,10 +425,9 @@ def test_invalid_stored_key_falls_back_to_email_code(tmp_path: Path) -> None:
 
     updated = read_config(mem0_dir)
     assert updated["platform"] == config["platform"]
-    assert alias_marker("oss-fallback", "new@example.com") in updated["telemetry"]["aliased_pairs"]
 
 
-def test_email_code_failure_reports_failed_telemetry(tmp_path: Path) -> None:
+def test_email_code_failure_exits_with_error(tmp_path: Path) -> None:
     with MigrationHTTPServer(verify_status=400) as server:
         result, mem0_dir = run_migration_script(
             tmp_path,
@@ -483,16 +441,6 @@ def test_email_code_failure_reports_failed_telemetry(tmp_path: Path) -> None:
     assert result.returncode == 1
     assert "Verification failed: bad verification code" in result.stderr
 
-    updated = read_config(mem0_dir)
-    assert "telemetry" not in updated or "aliased_pairs" not in updated["telemetry"]
-
-    events = posthog_events(server)
-    event_names = [event["event"] for event in events]
-    assert "oss.migrate.started" in event_names
-    assert "oss.migrate.failed" in event_names
-    assert "$identify" not in event_names
-    failed = next(event for event in events if event["event"] == "oss.migrate.failed")
-    assert "Verification failed" in failed["properties"]["error"]
 
 
 def test_malformed_config_does_not_crash_and_authenticates(tmp_path: Path) -> None:
@@ -510,29 +458,6 @@ def test_malformed_config_does_not_crash_and_authenticates(tmp_path: Path) -> No
     assert result.returncode == 0, result.stderr
     assert "Authenticated as malformed@example.com" in result.stdout
 
-    updated = read_config(mem0_dir)
-    assert updated["user_id"]
-    assert alias_marker(updated["user_id"], "malformed@example.com") in updated["telemetry"]["aliased_pairs"]
-
-
-def test_weird_telemetry_shape_does_not_crash(tmp_path: Path) -> None:
-    config = {"user_id": "oss-weird-telemetry", "telemetry": "not-an-object"}
-
-    with MigrationHTTPServer(ping_emails={"verified-key": "weird@example.com"}) as server:
-        result, mem0_dir = run_migration_script(
-            tmp_path,
-            server,
-            "--email",
-            "weird@example.com",
-            "--code",
-            "123456",
-            config=config,
-        )
-
-    assert result.returncode == 0, result.stderr
-    updated = read_config(mem0_dir)
-    assert isinstance(updated["telemetry"], dict)
-    assert alias_marker("oss-weird-telemetry", "weird@example.com") in updated["telemetry"]["aliased_pairs"]
 
 
 def test_missing_python3_prints_clear_shell_error(tmp_path: Path) -> None:
@@ -614,7 +539,6 @@ def test_export_qdrant_memories_to_json_without_vectors_or_api_key(tmp_path: Pat
             "alice",
             "--qdrant-page-size",
             "1",
-            config={"user_id": "oss-export-user"},
         )
 
     assert result.returncode == 0, result.stderr
@@ -627,7 +551,6 @@ def test_export_qdrant_memories_to_json_without_vectors_or_api_key(tmp_path: Pat
     assert artifact["source"]["storage"] == "hosted"
     assert artifact["source"]["filters"]["user_id"] == "alice"
     assert artifact["record_count"] == 2
-    assert artifact["local_anonymous_id"] == "oss-export-user"
 
     first = artifact["records"][0]
     assert first["id"] == "point-1"
@@ -727,9 +650,6 @@ def test_import_platform_memories_from_export_json(tmp_path: Path) -> None:
     assert body["metadata"]["mem0_migration_collection"] == "mem0_test"
     assert body["metadata"]["mem0_migration_local_id"] == "local-1"
     assert body["metadata"]["mem0_migration_local_hash"] == "hash-1"
-
-    events = posthog_events(server)
-    assert "oss.migrate.completed" in [event["event"] for event in events]
 
 
 def test_import_skips_existing_identical_memory(tmp_path: Path) -> None:
@@ -832,7 +752,3 @@ def test_full_flow_auth_export_and_imports_memories(tmp_path: Path) -> None:
     assert "Imported: 1" in result.stdout
     assert output_path.exists()
     assert any(request["path"] == "/v3/memories/add/" for request in server.requests)
-    events = posthog_events(server)
-    event_names = [event["event"] for event in events]
-    assert "oss.migrate.authenticated" in event_names
-    assert "oss.migrate.completed" in event_names

@@ -117,15 +117,6 @@ Once logged in, the dashboard exposes:
 - **Configuration** — runtime LLM and embedder override. Changes persist to the app database and reapply on restart, layered over the values from your `.env`.
 - **Settings** — account profile and password.
 
-## Telemetry
-
-Enabled by default, matching the Mem0 OSS library. Sends at most two events per install to the same anonymous PostHog project the library uses:
-
-- `admin_registered` — fired when the first admin is created (wizard or direct API call). Properties: email domain, server version, install UUID.
-- `onboarding_completed` — fired when the setup wizard reaches its final success state. Carries the same properties plus the freeform `use_case` the operator entered. API-only bootstraps never emit this event.
-
-Set `MEM0_TELEMETRY=false` to opt out.
-
 ## Security headers
 
 The dashboard sets the following response headers on every path (see `server/dashboard/next.config.mjs`):

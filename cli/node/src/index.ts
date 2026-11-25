@@ -20,14 +20,9 @@ import {
 	stdinIsPiped,
 	takeNotice,
 } from "./state.js";
-import { captureEvent } from "./telemetry.js";
 import { CLI_VERSION } from "./version.js";
 
 const program = new Command();
-
-// ── Validated user identity (set by getBackendAndConfig) ─────────────────
-
-let _validatedUserEmail: string | undefined;
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -61,7 +56,6 @@ async function getBackendAndConfig(
 
 		const email = pingData?.user_email as string | undefined;
 		if (email) {
-			_validatedUserEmail = email;
 			if (config.platform.userEmail !== email) {
 				config.platform.userEmail = email;
 				try {
@@ -171,7 +165,7 @@ program
 	.addHelpCommand(false)
 	.configureHelp({ formatHelp: richFormatHelp });
 
-// ── Telemetry hook ───────────────────────────────────────────────────────
+// ── Command context hook ─────────────────────────────────────────────────
 
 program.hook("preAction", (_thisCommand, actionCommand) => {
 	try {
@@ -185,19 +179,6 @@ program.hook("preAction", (_thisCommand, actionCommand) => {
 		// error envelope (printError) can report which command failed
 		// instead of an empty `"command": ""` field.
 		setCurrentCommand(fullCommand);
-		// init fires its own telemetry from runInit with full M1-M6 props
-		// (mode/agent_caller/signup_source/claimed_agent_mode); skip the
-		// auto-fire here so we don't double-count.
-		if (fullCommand === "init") return;
-		const isAgent = !!(program.opts().json || program.opts().agent);
-		captureEvent(
-			`cli.${fullCommand}`,
-			{
-				command: fullCommand,
-				is_agent: isAgent,
-			},
-			_validatedUserEmail,
-		);
 	} catch {
 		/* silently swallow */
 	}

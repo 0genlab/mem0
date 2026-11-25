@@ -21,7 +21,6 @@ import { cn } from "@/lib/utils";
 import { api } from "@/utils/api";
 import {
   API_KEY_ENDPOINTS,
-  AUTH_ENDPOINTS,
   MEMORY_ENDPOINTS,
 } from "@/utils/api-endpoints";
 import {
@@ -293,9 +292,6 @@ export default function SetupPage() {
       }
 
       setTestSuccess(true);
-      void api
-        .post(AUTH_ENDPOINTS.ONBOARDING_COMPLETE, { use_case: useCase })
-        .catch(() => {});
     } catch (err) {
       setError(getErrorMessage(err, "Test failed"));
     } finally {

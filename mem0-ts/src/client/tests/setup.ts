@@ -8,7 +8,7 @@ import {
   MOCK_PING_RESPONSE,
 } from "./helpers";
 
-// ─── Global fetch mock + telemetry suppression ───────────
+// ─── Global fetch mock + console suppression ───────────
 
 const originalFetch = global.fetch;
 
@@ -27,27 +27,15 @@ export function setupMockFetch(
 }
 
 const originalConsoleError = console.error;
-const originalConsoleWarn = console.warn;
 
 export function installConsoleSuppression(): void {
   beforeAll(() => {
     jest.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
       const msg = String(args[0] ?? "");
-      if (
-        msg.includes("Telemetry") ||
-        msg.includes("Failed to initialize") ||
-        msg.includes("Failed to capture")
-      ) {
+      if (msg.includes("Failed to initialize")) {
         return;
       }
       originalConsoleError(...args);
-    });
-    jest.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
-      const msg = String(args[0] ?? "");
-      if (msg.includes("telemetry") || msg.includes("Telemetry")) {
-        return;
-      }
-      originalConsoleWarn(...args);
     });
   });
 

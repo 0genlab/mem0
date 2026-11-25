@@ -1,12 +1,6 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, EmailStr
-from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
-
 from auth import (
     consume_refresh_jti,
     create_access_token,
@@ -18,10 +12,14 @@ from auth import (
     verify_password,
 )
 from db import get_db
+from fastapi import APIRouter, Depends, HTTPException, Request
 from models import User
+from pydantic import BaseModel, EmailStr
 from rate_limit import limiter
 from schemas import MessageResponse
-from telemetry import capture_admin_registered, capture_onboarding_completed
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -40,10 +38,6 @@ class RegisterRequest(BaseModel):
     name: str
     email: EmailStr
     password: str
-
-
-class OnboardingCompleteRequest(BaseModel):
-    use_case: str
 
 
 class LoginRequest(BaseModel):
@@ -113,8 +107,6 @@ def register(request: Request, body: RegisterRequest, db: Session = Depends(get_
         db.rollback()
         raise HTTPException(status_code=403, detail="Registration is closed. An admin account already exists.")
     db.refresh(user)
-
-    capture_admin_registered(email=body.email)
 
     return TokenResponse(
         access_token=create_access_token(str(user.id), user.role),
@@ -212,9 +204,3 @@ def change_password(
     db.commit()
     return MessageResponse(message="Password updated.")
 
-
-@router.post("/onboarding-complete", response_model=MessageResponse)
-def onboarding_complete(body: OnboardingCompleteRequest, user: User = Depends(require_auth)):
-    """Fire the one-shot telemetry event after the setup wizard reaches its success state."""
-    capture_onboarding_completed(email=user.email, use_case=body.use_case)
-    return MessageResponse(message="Onboarding completed.")

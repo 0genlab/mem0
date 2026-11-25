@@ -13,7 +13,6 @@ import {existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync} from "f
 import {homedir} from "os";
 import {join} from "path";
 import {createHash} from "crypto";
-import {captureEvent} from "./telemetry";
 import {asScope, scopeSearchFilters, scopeWriteParams, resolveDefaultScope, SCOPE_GUIDANCE, type Scope} from "./scope";
 import {parseProjectFromRemote} from "./project";
 import {resolveApiKey} from "./api-key";
@@ -268,23 +267,6 @@ const Mem0Plugin: Plugin = async (ctx) => {
 
   const systemContext: string[] = [];
 
-  // Emit a session_stop telemetry event once when the process winds down.
-  let sessionStopSent = false;
-  const emitSessionStop = () => {
-    if (sessionStopSent) return;
-    sessionStopSent = true;
-    captureEvent(
-      "session_stop",
-      {adds: stats.adds, searches: stats.searches, messages: stats.messages},
-      apiKey,
-      appId,
-    );
-  };
-  try {
-    process.on("beforeExit", emitSessionStop);
-  } catch {
-  }
-
   // Auto-configure coding categories in background (idempotent, never blocks)
   Promise.resolve().then(() => autoSetupCategories(mem0, apiKey)).catch(() => {
   });
@@ -390,7 +372,6 @@ Identity context (resolved at plugin startup):
         },
         async execute(args) {
           stats.adds++;
-          captureEvent("tool_use", {tool: "add_memory"}, apiKey, appId);
           const effScope: Scope = resolveToolScope(args.scope ? asScope(args.scope) : undefined, loadDefaultScope());
           const sp = scopeWriteParams(effScope, userId, appId, sessionId);
           const finalUserId = args.agent_id ? args.user_id : (args.user_id ?? sp.user_id);
@@ -438,7 +419,6 @@ Identity context (resolved at plugin startup):
         },
         async execute(args) {
           stats.searches++;
-          captureEvent("tool_use", {tool: "search_memories"}, apiKey, appId);
           const topK = args.limit ?? args.top_k ?? 10;
           const filters = readScopeFilters(args);
 
@@ -462,7 +442,6 @@ Identity context (resolved at plugin startup):
           scope: tool.schema.string().optional().describe('Scope: "project" (default), "session", or "global" (across ALL your projects). Use "global" only when explicitly asked.'),
         },
         async execute(args) {
-          captureEvent("tool_use", {tool: "get_memories"}, apiKey, appId);
           const filters = readScopeFilters(args);
 
           const res = await mem0.getAll({
@@ -480,7 +459,6 @@ Identity context (resolved at plugin startup):
           id: tool.schema.string().describe("The ID of the memory to retrieve"),
         },
         async execute(args) {
-          captureEvent("tool_use", {tool: "get_memory"}, apiKey, appId);
           const res = await mem0.get(args.id);
           return JSON.stringify(res);
         }
@@ -494,7 +472,6 @@ Identity context (resolved at plugin startup):
           metadata: tool.schema.record(tool.schema.string(), tool.schema.any()).optional().describe("New metadata key-value pairs"),
         },
         async execute(args) {
-          captureEvent("tool_use", {tool: "update_memory"}, apiKey, appId);
           const res = await mem0.update(args.id, {
             text:
               args.text === undefined
@@ -512,7 +489,6 @@ Identity context (resolved at plugin startup):
           id: tool.schema.string().describe("The ID of the memory to delete"),
         },
         async execute(args) {
-          captureEvent("tool_use", {tool: "delete_memory"}, apiKey, appId);
           const res = await mem0.delete(args.id);
           return JSON.stringify(res);
         }
@@ -527,7 +503,6 @@ Identity context (resolved at plugin startup):
           scope: tool.schema.string().optional().describe('Scope to delete: "project" (default), "session", or "global" (user-wide). Use "global" only when explicitly asked.'),
         },
         async execute(args) {
-          captureEvent("tool_use", {tool: "delete_all_memories"}, apiKey, appId);
           const sp = args.scope ? scopeWriteParams(resolveToolScope(asScope(args.scope), loadDefaultScope()), userId, appId, sessionId) : null;
           const res = await mem0.deleteAll({
             user_id: sp ? sp.user_id : (args.agent_id ? args.user_id : (args.user_id ?? userId)),
@@ -548,7 +523,6 @@ Identity context (resolved at plugin startup):
           run_id: tool.schema.string().optional().describe("Run ID of the entity to delete"),
         },
         async execute(args) {
-          captureEvent("tool_use", {tool: "delete_entities"}, apiKey, appId);
           const res = await mem0.deleteUsers({
             userId: args.user_id,
             agentId: args.agent_id,
@@ -566,7 +540,6 @@ Identity context (resolved at plugin startup):
           page_size: tool.schema.number().optional().describe("Page size"),
         },
         async execute(args) {
-          captureEvent("tool_use", {tool: "list_entities"}, apiKey, appId);
           const res = await mem0.users({
             page: args.page,
             pageSize: args.page_size,
@@ -581,7 +554,6 @@ Identity context (resolved at plugin startup):
           event_id: tool.schema.string().describe("The ID of the event/async operation to check"),
         },
         async execute(args) {
-          captureEvent("tool_use", {tool: "get_event_status"}, apiKey, appId);
           const response = await mem0.client.get(`/v1/event/${args.event_id}/`);
           return JSON.stringify(response.data);
         }
@@ -677,7 +649,6 @@ Identity context (resolved at plugin startup):
         }
       }
 
-      captureEvent("session_start", {memory_count: memoryCount}, apiKey, appId);
 
     }
 
@@ -776,12 +747,6 @@ Identity context (resolved at plugin startup):
       );
     }
 
-    captureEvent(
-      "user_prompt",
-      {remember_detected: hasRemember, resume_detected: hasResume},
-      apiKey,
-      appId,
-    );
   }
 
   async function toolExecuteBeforeHook(input: any, output: any) {
@@ -848,7 +813,6 @@ Identity context (resolved at plugin startup):
         const errorQuery = errorLine.slice(0, 80);
         if (errorQuery.length < 10) return;
 
-        captureEvent("bash_error", {error_detected: true}, apiKey, appId);
 
         const errorFilters = globalSearch
           ? {OR: [{user_id: "*"}]}
@@ -884,12 +848,6 @@ Identity context (resolved at plugin startup):
   async function compactionHook(input: { sessionID?: string }, output: { context: string[]; prompt?: string }) {
     try {
       const compactSessionId = input?.sessionID ?? sessionId;
-      captureEvent(
-        "pre_compact",
-        {adds: stats.adds, searches: stats.searches, messages: stats.messages},
-        apiKey,
-        appId,
-      );
       const summaryContent = `Session compacting. Project: ${appId}. Branch: ${branch}. Session: ${compactSessionId}. Stats: ${stats.adds} memories stored, ${stats.searches} searches, ${stats.messages} messages.`;
       Promise.resolve().then(async () => {
         try {

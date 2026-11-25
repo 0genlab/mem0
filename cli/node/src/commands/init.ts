@@ -283,16 +283,6 @@ async function validatePlatform(config: Mem0Config): Promise<void> {
 		});
 		if (status.connected) {
 			printSuccess("Connected to mem0 Platform!");
-			// Cache user_email from ping response for telemetry distinct_id
-			try {
-				const pingData = (await backend.ping()) as Record<string, unknown>;
-				const userEmail = pingData?.user_email as string | undefined;
-				if (userEmail) {
-					config.platform.userEmail = userEmail;
-				}
-			} catch {
-				/* ignore — telemetry ID will fall back to API key hash */
-			}
 		} else {
 			printError(
 				`Could not connect: ${status.error ?? "Unknown error"}`,
@@ -319,19 +309,6 @@ export async function runInit(
 	const { detectAgentCaller } = await import("../agent-detect.js");
 	const { bootstrapViaBackend, claimViaOtp } = await import("./agent-mode.js");
 	const { isAgentMode } = await import("../state.js");
-	const { captureEvent } = await import("../telemetry.js");
-
-	const fireInit = (
-		mode: "agent" | "email" | "api_key" | "existing_key",
-		claimed = false,
-	) => {
-		const props: Record<string, unknown> = { command: "init", mode };
-		// Self-declared via --agent-caller; not sniffed from env vars.
-		if (opts.agentCaller) props.agent_caller = opts.agentCaller;
-		if (opts.source) props.signup_source = opts.source;
-		if (claimed) props.claimed_agent_mode = true;
-		captureEvent("cli.init", props);
-	};
 
 	const config = createDefaultConfig();
 	const savedConfig = loadConfig();
@@ -362,7 +339,6 @@ export async function runInit(
 		validateEmail(email);
 		printInfo(`Claiming Agent Mode account to ${email}...`);
 		await claimViaOtp(savedConfig, { email, code: opts.code });
-		fireInit("email", true);
 		return;
 	}
 
@@ -399,7 +375,6 @@ export async function runInit(
 		if (envKey && (await pingKey(envKey, baseUrl))) {
 			await maybeIdentify(envKey, baseUrl, opts.agentCaller);
 			emitReuseEnvelope("env");
-			fireInit("existing_key");
 			return;
 		}
 		// Rule 2: existing config api_key valid → reuse.
@@ -413,7 +388,6 @@ export async function runInit(
 				opts.agentCaller,
 			);
 			emitReuseEnvelope("config");
-			fireInit("existing_key");
 			return;
 		}
 		// Rule 3: mint a fresh shadow (no valid key to reuse).
@@ -425,7 +399,6 @@ export async function runInit(
 			source: opts.source ?? null,
 			agentCaller: opts.agentCaller ?? null,
 		});
-		fireInit("agent");
 		return;
 	}
 

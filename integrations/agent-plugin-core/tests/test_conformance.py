@@ -10,7 +10,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from conformance import run as conformance_run  # noqa: E402
 from conformance.run import _command_check  # noqa: E402
 
-
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 RUNNER = PLUGIN_ROOT / "conformance" / "run.py"
 PYTHON_HOSTS = {"claude-code", "cursor", "codex", "kimi", "antigravity"}
@@ -147,20 +146,6 @@ def test_live_conformance_reports_platform_failure_without_crashing(tmp_path: Pa
     payload = json.loads(report.read_text(encoding="utf-8"))
     assert payload["status"] == "failed"
     assert payload["checks"][0]["group"] == "live-platform"
-
-
-def test_runtime_checks_preserve_the_callers_telemetry_setting(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.delenv("MEM0_TELEMETRY", raising=False)
-
-    result = _command_check(
-        "environment",
-        "test",
-        [sys.executable, "-c", "import os; print(os.environ.get('MEM0_TELEMETRY', 'unset'))"],
-        cwd=tmp_path,
-    )
-
-    assert result["status"] == "passed"
-    assert result["output"] == "unset"
 
 
 def test_command_check_can_force_non_interactive_installs(tmp_path: Path) -> None:

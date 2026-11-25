@@ -220,10 +220,6 @@ The network policy is not applied or missing the `mem0_api` entry. Re-run the pl
 openshell policy set <sandbox-name> --policy /tmp/nemoclaw-mem0-policy.yaml --wait
 ```
 
-#### `Telemetry event capture failed: TypeError: fetch failed`
-
-This is harmless. The Mem0 SDK's telemetry endpoint (`us.i.posthog.com`) is blocked by the sandbox proxy. It does not affect memory functionality.
-
 #### Plugin shows `disabled` in `openclaw plugins list`
 
 The memory slot is not set to `openclaw-mem0`. Inside the sandbox, run:

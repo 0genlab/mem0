@@ -62,7 +62,7 @@ def main():
     sys.path.insert(0, str(hermes_source))
     with tempfile.TemporaryDirectory() as temporary:
         home = Path(temporary)
-        os.environ.update(HERMES_HOME=temporary, MEM0_DIR=str(home / "mem0-data"), MEM0_TELEMETRY="false")
+        os.environ.update(HERMES_HOME=temporary, MEM0_DIR=str(home / "mem0-data"))
         (home / "mem0-data").mkdir()
         server = ThreadingHTTPServer(("127.0.0.1", 0), ModelAPI)
         worker = threading.Thread(target=server.serve_forever, daemon=True)

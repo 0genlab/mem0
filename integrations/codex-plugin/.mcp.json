@@ -11,8 +11,7 @@
         "MEM0_CODE_USER_ID",
         "MEM0_USER_ID",
         "MEM0_RESOLVED_USER_ID",
-        "MEM0_PROJECT_ID",
-        "MEM0_TELEMETRY"
+        "MEM0_PROJECT_ID"
       ]
     }
   }

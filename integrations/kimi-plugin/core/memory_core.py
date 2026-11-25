@@ -26,7 +26,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-import telemetry
 
 DEFAULT_API_URL = "https://api.mem0.ai"
 PLUGIN_VERSION = "0.3.3"
@@ -588,7 +587,6 @@ class EvidenceStore:
                     source.unlink()
                 except OSError:
                     pass
-        telemetry.record("db_quarantined")
 
     def close(self) -> None:
         self.conn.close()
@@ -810,15 +808,6 @@ class EvidenceStore:
                 self.conn.execute(
                     "UPDATE flushes SET status = 'gave-up', updated_at = ? WHERE packet_id = ?",
                     (utc_now(), existing["packet_id"]),
-                )
-                telemetry.record(
-                    "flush",
-                    repo=repo,
-                    session_id=session_id,
-                    reason=reason,
-                    status="gave-up",
-                    success=False,
-                    attempts=int(existing["attempts"] or 0),
                 )
                 existing = None
             if existing:
@@ -1272,15 +1261,6 @@ def record_session_start(store: EvidenceStore, hook_input: dict[str, Any]) -> No
             "head_sha": repo.head_sha,
         },
     )
-    telemetry.record(
-        "session_start",
-        repo=repo,
-        session_id=session_id,
-        trigger=bounded(str(hook_input.get("source", "startup")), 60),
-        model=bounded(hook_input.get("model", ""), 200),
-        api_key_configured=bool(api_key()),
-        is_git_repo=not repo.identity.startswith("local:"),
-    )
 
 
 def record_user_prompt(
@@ -1407,14 +1387,6 @@ def record_subagent_start(
             "repo_root": bounded(repo.root, 2000),
         },
     )
-    telemetry.record(
-        "subagent",
-        repo=repo,
-        session_id=session_id,
-        phase="start",
-        first_start=first_start,
-        context_chars=len(context) if first_start else 0,
-    )
     return context if first_start else ""
 
 
@@ -1443,14 +1415,6 @@ def record_subagent_stop(store: EvidenceStore, hook_input: dict[str, Any]) -> No
             "transcript_path": transcript_path,
             "final_message": final_message,
         },
-    )
-    telemetry.record(
-        "subagent",
-        repo=repo,
-        session_id=session_id,
-        phase="stop",
-        has_transcript=bool(transcript_path),
-        message_chars=len(final_message),
     )
 
 
@@ -1939,37 +1903,15 @@ def _wait_for_event(api_url: str, key: str, event_id: str) -> tuple[str, int, in
     return "TIMEOUT", response_chars, 0
 
 
-def _record_flush(
-    repo: RepoContext,
-    session_id: str,
-    reason: str,
-    status: str,
-    elapsed: float,
-    **extra: Any,
-) -> None:
-    telemetry.record(
-        "flush",
-        repo=repo,
-        session_id=session_id,
-        reason=reason,
-        status=status,
-        success=status in {"semantic-succeeded", "nothing-to-flush"},
-        duration_ms=round(elapsed, 2),
-        **extra,
-    )
-
-
 def flush_session(
     store: EvidenceStore, hook_input: dict[str, Any], reason: str
 ) -> dict[str, Any]:
     key = api_key()
     if not key:
-        telemetry.record("flush", reason=reason, status="local-only", success=False)
         return {"status": "local-only", "reason": "no-api-key"}
 
     session_id = _session_id(hook_input)
     if session_id == "unknown-session":
-        telemetry.record("flush", reason=reason, status="no-session-id", success=False)
         return {"status": "error", "reason": "no-session-id"}
     repo = store.repo_for_session(session_id, hook_input.get("cwd"))
     prepared = store.prepare_flush(repo, session_id, reason)
@@ -1998,7 +1940,6 @@ def flush_session(
     write_user = _scope_value(user_id())
     write_project = _scope_value(repo.project_id)
     if not write_user or not _scope_value(repo.app_id) or not write_project:
-        telemetry.record("flush", reason=reason, status="unscoped", success=False)
         return {"status": "error", "reason": "wildcard-scope"}
 
     body = {
@@ -2047,15 +1988,6 @@ def flush_session(
                     item_count=existing_items,
                     response_chars=existing_resp,
                 )
-                _record_flush(
-                    repo,
-                    session_id,
-                    reason,
-                    "semantic-succeeded",
-                    elapsed,
-                    memory_count=existing_items,
-                    resumed=True,
-                )
                 effective_reason = str(
                     (store.flush_record(packet_id) or {}).get("reason") or reason
                 )
@@ -2091,15 +2023,6 @@ def flush_session(
                     False,
                     response_chars=existing_resp,
                     error=error,
-                )
-                _record_flush(
-                    repo,
-                    session_id,
-                    reason,
-                    "semantic-timeout",
-                    elapsed,
-                    resumed=True,
-                    error_kind="timeout",
                 )
                 return {
                     "status": "semantic-timeout",
@@ -2180,16 +2103,6 @@ def flush_session(
                 response_chars=semantic_resp + event_resp,
                 error=error,
             )
-            _record_flush(
-                repo,
-                session_id,
-                reason,
-                f"semantic-{semantic_status.lower()}",
-                elapsed,
-                memory_count=semantic_items,
-                batch_count=len(batches),
-                error_kind=telemetry.error_kind(error),
-            )
             return {
                 "status": f"semantic-{semantic_status.lower()}",
                 "packet_id": packet_id,
@@ -2214,16 +2127,6 @@ def flush_session(
             item_count=semantic_items,
             request_chars=semantic_req,
             response_chars=semantic_resp + event_resp,
-        )
-        _record_flush(
-            repo,
-            session_id,
-            reason,
-            "semantic-succeeded",
-            elapsed,
-            memory_count=semantic_items,
-            batch_count=len(batches),
-            request_chars=semantic_req,
         )
         effective_reason = str(
             (store.flush_record(packet_id) or {}).get("reason") or reason
@@ -2252,14 +2155,6 @@ def flush_session(
         error = bounded(str(exc), 1000)
         store.update_flush(packet_id, status="error", error=error)
         store.operation(repo, session_id, "flush", elapsed, False, error=error)
-        _record_flush(
-            repo,
-            session_id,
-            reason,
-            "error",
-            elapsed,
-            error_kind=telemetry.error_kind(exc),
-        )
         return {"status": "error", "packet_id": packet_id, "error": error}
 
 
@@ -2367,19 +2262,6 @@ def search_memories(
                 request_chars=request_chars,
                 response_chars=response_chars,
             )
-        telemetry.record(
-            "search",
-            repo=repo,
-            session_id=session_id,
-            trigger=operation,
-            success=True,
-            duration_ms=round(elapsed, 2),
-            matched_count=len(memories),
-            returned_count=len(returned_memories),
-            already_shown_count=already_shown_count,
-            top_k=result_limit,
-            has_category=bool(category),
-        )
         return MemorySearchResult(
             succeeded=True,
             matched_count=len(memories),
@@ -2390,17 +2272,6 @@ def search_memories(
         elapsed = (time.perf_counter() - started) * 1000
         if track_session:
             store.operation(repo, session_id, operation, elapsed, False, error=str(exc))
-        telemetry.record(
-            "search",
-            repo=repo,
-            session_id=session_id,
-            trigger=operation,
-            success=False,
-            duration_ms=round(elapsed, 2),
-            top_k=result_limit,
-            has_category=bool(category),
-            error_kind=telemetry.error_kind(exc),
-        )
         return MemorySearchResult(False, 0, 0, [])
 
 
@@ -2572,11 +2443,9 @@ def forget_remote_repo(
     """Delete this user's memories for this repository; project memory is shared, so only on request."""
     key = api_key()
     if not key:
-        telemetry.record("forget", repo=repo, success=False, error_kind="no-api-key")
         return {"status": "error", "error": "Mem0 API key is not configured"}
     user = _scope_value(user_id())
     if not user or not _scope_value(repo.app_id) or not _scope_value(repo.project_id):
-        telemetry.record("forget", repo=repo, success=False, error_kind="unscoped")
         return {
             "status": "error",
             "error": "Refusing to forget: the user or repository scope is a wildcard",
@@ -2585,13 +2454,9 @@ def forget_remote_repo(
     try:
         memory_ids = _scoped_memory_ids(api_url, key, user, repo, include_project_memory)
     except Exception as exc:
-        telemetry.record(
-            "forget", repo=repo, success=False, error_kind=telemetry.error_kind(exc)
-        )
         return {"status": "error", "error": bounded(str(exc), 1000)}
     deleted = sum(_delete_memory(api_url, key, memory_id) for memory_id in memory_ids)
     failed = len(memory_ids) - deleted
-    telemetry.record("forget", repo=repo, success=not failed, item_count=deleted)
     if failed:
         return {
             "status": "partial",
