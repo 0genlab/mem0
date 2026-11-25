@@ -288,7 +288,6 @@ describe("Memory – auto-initialization", () => {
       HistoryManagerFactory: mockHistoryFactory,
     }));
 
-
     MemoryClass = require("../src/memory").Memory;
   });
 

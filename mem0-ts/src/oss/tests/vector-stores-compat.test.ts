@@ -5075,7 +5075,6 @@ describe("Memory class – backward compat with all providers", () => {
       },
     }));
 
-
     MemoryClass = require("../src/memory").Memory;
   });
 
