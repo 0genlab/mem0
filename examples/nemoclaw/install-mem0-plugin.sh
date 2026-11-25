@@ -241,7 +241,7 @@ fi
 # STEP 2: Update Network Policy
 # ═════════════════════════════════════════════════════════════════════════════
 
-step "Step 2: Updating network policy to allow api.mem0.ai and telemetry"
+step "Step 2: Updating network policy to allow api.mem0.ai"
 
 # Find baseline policy
 BASELINE_POLICY=$(run_cmd "find / -path '*/nemoclaw-blueprint/policies/openclaw-sandbox.yaml' 2>/dev/null | head -1" || true)
@@ -261,24 +261,16 @@ else
   info "Adding api.mem0.ai to network policy..."
 fi
 
-# Create custom policy with mem0_api + telemetry
+# Create custom policy with mem0_api
 run_cmd "node -e \"
 const fs = require('fs');
 let c = fs.readFileSync('$BASELINE_POLICY', 'utf8');
 const mem0Block = '\\n  mem0_api:\\n    name: mem0_api\\n    endpoints:\\n      - host: api.mem0.ai\\n        port: 443\\n        access: full\\n    binaries:\\n      - { path: /usr/local/bin/node }\\n      - { path: /usr/local/bin/openclaw }\\n';
-const telemetryBlock = '\\n  mem0_telemetry:\\n    name: mem0_telemetry\\n    endpoints:\\n      - host: us.i.posthog.com\\n        port: 443\\n        access: full\\n    binaries:\\n      - { path: /usr/local/bin/node }\\n      - { path: /usr/local/bin/openclaw }\\n';
 if (!c.includes('mem0_api')) {
   if (c.includes('# ── Messaging')) {
     c = c.replace('  # ── Messaging', mem0Block + '\\n  # ── Messaging');
   } else {
     c += mem0Block;
-  }
-}
-if (!c.includes('mem0_telemetry')) {
-  if (c.includes('mem0_api:')) {
-    c = c.replace('  mem0_api:', telemetryBlock + '\\n  mem0_api:');
-  } else {
-    c += telemetryBlock;
   }
 }
 fs.writeFileSync('/tmp/nemoclaw-mem0-policy.yaml', c);
@@ -298,7 +290,7 @@ if ! run_cmd "openshell policy set '$SANDBOX_NAME' --policy /tmp/nemoclaw-mem0-p
   die "Network policy update failed."
 fi
 
-success "Network policy applied — api.mem0.ai and telemetry allowed"
+success "Network policy applied — api.mem0.ai allowed"
 
 # ═════════════════════════════════════════════════════════════════════════════
 # STEP 3: Configure Plugin
@@ -410,9 +402,6 @@ echo ""
 echo -e "  Or use the interactive TUI:"
 echo ""
 echo -e "     ${DIM}openclaw tui${NC}"
-echo ""
-echo -e "  ${YELLOW}Note:${NC} You may see 'Telemetry event capture failed' errors."
-echo -e "  These are harmless and do not affect memory functionality."
 echo ""
 echo -e "  ${BOLD}Documentation:${NC} https://docs.mem0.ai"
 echo -e "  ${BOLD}Plugin source:${NC} https://www.npmjs.com/package/@mem0/openclaw-mem0"

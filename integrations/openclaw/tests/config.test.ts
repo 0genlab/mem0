@@ -100,9 +100,9 @@ describe("mem0ConfigSchema.parse() — defaults", () => {
     expect(cfg.skills).toBeUndefined();
   });
 
-  it("allows anonymousTelemetryId", () => {
+  it("accepts legacy anonymousTelemetryId without exposing it", () => {
     const cfg = mem0ConfigSchema.parse({ apiKey: "test-key", anonymousTelemetryId: "123" });
-    expect(cfg.anonymousTelemetryId).toBe("123");
+    expect(cfg).not.toHaveProperty("anonymousTelemetryId");
   });
 });
 
@@ -486,11 +486,9 @@ describe("mem0ConfigSchema.parse() — apiKey edge cases", () => {
   });
 });
 
-describe("telemetry fingerprint round trip", () => {
-  it("a config carrying keyFingerprint is accepted by the real schema", () => {
-    // What writePluginAuth persists after a successful lookup. It was not in
-    // ALLOWED_KEYS, and assertAllowedKeys throws, so the first successful
-    // resolve wrote a config that broke every subsequent load of the plugin.
+describe("legacy persisted keys", () => {
+  it("a config carrying a legacy keyFingerprint is accepted by the real schema", () => {
+    // Written by earlier versions; assertAllowedKeys throws on unknown keys.
     const persisted = {
       apiKey: "m0-test",
       userEmail: "person@example.com",

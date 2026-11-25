@@ -225,19 +225,6 @@ def run_init(
     from mem0_cli.agent_detect import detect_agent_caller
     from mem0_cli.commands.agent_mode_cmd import bootstrap_via_backend, claim_via_otp
     from mem0_cli.state import is_agent_mode as _global_agent_mode
-    from mem0_cli.telemetry import capture_event
-
-    def _fire_init(mode: str, *, claimed: bool = False) -> None:
-        """Fire cli.init telemetry with M1-M6 properties."""
-        props: dict = {"command": "init", "mode": mode}
-        if agent_caller:
-            # Self-declared via --agent-caller; not sniffed from env vars.
-            props["agent_caller"] = agent_caller
-        if source:
-            props["signup_source"] = source
-        if claimed:
-            props["claimed_agent_mode"] = True
-        capture_event("cli.init", props)
 
     config = Mem0Config()
 
@@ -256,7 +243,6 @@ def run_init(
             _validate_email(email)
             print_info(console, f"Claiming Agent Mode account to {email}...")
             claim_via_otp(existing, email=email, code=code)
-            _fire_init("email", claimed=True)
             return
 
     # ── Agent Mode path runs BEFORE the existing-config guard ──────────
@@ -320,7 +306,6 @@ def run_init(
         if _env_key and _ping_key(_env_key, base_url):
             _maybe_identify(_env_key)
             _emit_reuse("env")
-            _fire_init("existing_key")
             return
         # Rule 2: existing config api_key valid → reuse.
         if CONFIG_FILE.exists():
@@ -328,14 +313,12 @@ def run_init(
             if _existing.platform.api_key and _ping_key(_existing.platform.api_key, base_url):
                 _maybe_identify(_existing.platform.api_key)
                 _emit_reuse("config")
-                _fire_init("existing_key")
                 return
         # Rule 3: mint a fresh shadow (no valid key to reuse).
         # agent_caller is the agent's self-declared identity from --agent-caller
         # (Proof Editor-style). Env-var auto-detect is still used above to
         # decide we're in an agent context, but never to fill identity.
         bootstrap_via_backend(config, source=source, agent_caller=agent_caller)
-        _fire_init("agent")
         return
 
     # Warn if an existing config with an API key would be overwritten
@@ -548,14 +531,6 @@ def _validate_platform(config: Mem0Config) -> None:
         )
         if status.get("connected"):
             print_success(console, "Connected to mem0 Platform!")
-            # Cache user_email from ping response for telemetry distinct_id
-            try:
-                ping_data = backend.ping()
-                user_email = ping_data.get("user_email") if isinstance(ping_data, dict) else None
-                if user_email:
-                    config.platform.user_email = user_email
-            except Exception:
-                pass
         else:
             print_error(
                 err_console,

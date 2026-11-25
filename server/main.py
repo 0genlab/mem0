@@ -4,7 +4,6 @@ import os
 import time
 from typing import Any, Dict, List, Optional
 
-import telemetry
 from auth import ADMIN_API_KEY, AUTH_DISABLED, JWT_SECRET, require_admin, verify_auth
 from db import SessionLocal
 from dotenv import load_dotenv
@@ -102,8 +101,6 @@ elif ADMIN_API_KEY and len(ADMIN_API_KEY) < MIN_KEY_LENGTH:
     )
 elif not ADMIN_API_KEY:
     _warn_if_unconfigured()
-
-telemetry.log_status()
 
 POSTGRES_HOST = os.environ.get("POSTGRES_HOST", "postgres")
 POSTGRES_PORT = os.environ.get("POSTGRES_PORT", "5432")
@@ -373,8 +370,6 @@ def add_memory(memory_create: MemoryCreate, _auth=Depends(verify_auth)):
     params = {k: v for k, v in memory_create.model_dump().items() if v is not None and k != "messages"}
     try:
         response = get_memory_instance().add(messages=[m.model_dump() for m in memory_create.messages], **params)
-        if response.get("results"):
-            telemetry.log_dashboard_nudge_once(DASHBOARD_URL)
         return JSONResponse(content=response)
     except (ValueError, Mem0ValidationError) as e:
         raise _client_error(e)

@@ -82,7 +82,6 @@ jobs:
         run: >-
           python3 -m pytest -q
           integrations/claude-code-plugin/tests/test_memory_core.py
-          integrations/claude-code-plugin/tests/test_telemetry.py
 
       - name: Run full tests
         if: matrix.python-version != '3.10'

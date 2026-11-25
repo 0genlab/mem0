@@ -22,13 +22,12 @@ def mock_memory_client():
         )
         mock_httpx.return_value = mock_http_client
 
-        with patch("mem0.client.main.capture_client_event"):
-            from mem0.client.main import MemoryClient
+        from mem0.client.main import MemoryClient
 
-            client = MemoryClient(api_key="test-api-key")
-            # The constructor pings through this same mock; drop that call.
-            mock_http_client.get.reset_mock()
-            yield client
+        client = MemoryClient(api_key="test-api-key")
+        # The constructor pings through this same mock; drop that call.
+        mock_http_client.get.reset_mock()
+        yield client
 
 
 def _assert_job_call(post_mock, expected_json):
@@ -217,10 +216,9 @@ class TestAsyncClientParity:
         with patch("mem0.client.main.httpx.AsyncClient") as mock_httpx:
             mock_httpx.return_value = MagicMock()
             with patch("mem0.client.main.requests.get", return_value=validation):
-                with patch("mem0.client.main.capture_client_event"):
-                    from mem0.client.main import AsyncMemoryClient
+                from mem0.client.main import AsyncMemoryClient
 
-                    yield AsyncMemoryClient(api_key="test-api-key")
+                yield AsyncMemoryClient(api_key="test-api-key")
 
     def test_get_profile(self, async_client):
         async_client.async_client.get = AsyncMock(return_value=_mock_response({"profile": {}, "status": "pending"}))

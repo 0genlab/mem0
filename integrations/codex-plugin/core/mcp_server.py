@@ -8,7 +8,6 @@ import os
 import sys
 from typing import Any
 
-import telemetry
 from memory_core import (
     CODING_MEMORY_CATEGORY_NAMES,
     PLUGIN_VERSION,
@@ -232,7 +231,6 @@ def main() -> int:
         if response is not None:
             sys.stdout.write(json.dumps(response, separators=(",", ":")) + "\n")
             sys.stdout.flush()
-    telemetry.spawn_flush()
     return 0
 
 

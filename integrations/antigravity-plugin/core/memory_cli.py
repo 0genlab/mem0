@@ -7,7 +7,6 @@ import argparse
 import json
 import os
 
-import telemetry
 from memory_core import (
     EvidenceStore,
     api_key,
@@ -82,13 +81,11 @@ def main() -> int:
     if args.harness:
         source_tag = f"{args.harness.replace('-', '_')}_plugin"
         configure_harness(args.harness, source_tag=source_tag)
-        telemetry.init(harness=args.harness, source_tag=source_tag.upper())
     if args.plugin_data_dir:
         os.environ["MEM0_CODE_DATA_DIR"] = args.plugin_data_dir
     store = EvidenceStore()
     try:
         repo = resolve_repo(os.getcwd())
-        telemetry.record("control", repo=repo, action=args.command)
         if args.command == "status":
             result = {
                 **store.status(repo.identity),
@@ -146,7 +143,6 @@ def main() -> int:
                 return 1
     finally:
         store.close()
-        telemetry.spawn_flush()
     return 0
 
 

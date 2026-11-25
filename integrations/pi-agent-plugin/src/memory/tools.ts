@@ -8,7 +8,6 @@ import type { Scope, ScopeContext, Mem0Config } from "../types.ts";
 import { DEFAULT_CUSTOM_CATEGORIES } from "../types.ts";
 import { resolveSearchFilters, resolveAddParams } from "./scoping.ts";
 import { formatMemoryList } from "./formatting.ts";
-import { captureToolEvent } from "../telemetry.ts";
 
 interface MemoryResult {
   message?: string;
@@ -139,7 +138,6 @@ export function registerMemoryTool(
   mem0: MemoryClient,
   config: Mem0Config,
   getScopeCtx: () => ScopeContext,
-  telemetryCtx?: { apiKey?: string },
 ): void {
   pi.registerTool({
     name: "mem0_memory",
@@ -197,24 +195,7 @@ export function registerMemoryTool(
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       const scopeCtx = getScopeCtx();
       const exec = buildToolExecute(mem0, scopeCtx, config.defaultScope);
-      const start = Date.now();
-      try {
-        const result = await exec(params as ToolParams, signal);
-        const details = (result as any).details ?? {};
-        captureToolEvent((params as ToolParams).action, {
-          success: true,
-          latency_ms: Date.now() - start,
-          result_count: details.matchCount ?? details.totalCount ?? undefined,
-        }, telemetryCtx);
-        return result;
-      } catch (err) {
-        captureToolEvent((params as ToolParams).action, {
-          success: false,
-          latency_ms: Date.now() - start,
-          error_type: err instanceof Error ? err.name : "unknown",
-        }, telemetryCtx);
-        throw err;
-      }
+      return exec(params as ToolParams, signal);
     },
   });
 }

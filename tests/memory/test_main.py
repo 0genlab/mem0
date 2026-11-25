@@ -53,7 +53,6 @@ class TestAddToVectorStoreErrors:
         """Test invalid JSON response from LLM during extraction"""
         # Setup
         mock_memory.llm.generate_response.return_value = "invalid json"
-        mocker.patch("mem0.memory.main.capture_event")
 
         # Execute
         with caplog.at_level(logging.ERROR):
@@ -93,7 +92,6 @@ class TestAddToVectorStoreErrors:
             pass
 
         mock_memory.llm.generate_response.side_effect = _ProviderError("429 rate limit")
-        mocker.patch("mem0.memory.main.capture_event")
 
         with pytest.raises(LLMError) as exc_info:
             mock_memory._add_to_vector_store(
@@ -265,7 +263,6 @@ class TestAsyncAddToVectorStoreErrors:
         """Test invalid JSON response from LLM during extraction (async)"""
         mocker.patch("mem0.utils.factory.EmbedderFactory.create", return_value=MagicMock())
         mock_async_memory.llm.generate_response.return_value = "invalid json"
-        mocker.patch("mem0.memory.main.capture_event")
 
         with caplog.at_level(logging.ERROR):
             result = await mock_async_memory._add_to_vector_store(
@@ -280,8 +277,6 @@ class TestAsyncAddToVectorStoreErrors:
         """Test empty response in AsyncMemory._add_to_vector_store (v3: single-pass, 1 LLM call)"""
         mocker.patch("mem0.utils.factory.EmbedderFactory.create", return_value=MagicMock())
         mock_async_memory.llm.generate_response.return_value = ""
-        mock_capture_event = mocker.MagicMock()
-        mocker.patch("mem0.memory.main.capture_event", mock_capture_event)
 
         with caplog.at_level(logging.WARNING):
             result = await mock_async_memory._add_to_vector_store(
@@ -306,7 +301,6 @@ class TestAsyncAddToVectorStoreErrors:
             pass
 
         mock_async_memory.llm.generate_response.side_effect = _ProviderError("429 rate limit")
-        mocker.patch("mem0.memory.main.capture_event")
 
         with pytest.raises(LLMError) as exc_info:
             await mock_async_memory._add_to_vector_store(
@@ -318,7 +312,6 @@ class TestAsyncAddToVectorStoreErrors:
 def _build_memory_instance(mocker, memory_cls):
     _setup_mocks(mocker)
     mocker.patch("mem0.memory.main.SQLiteManager", mocker.MagicMock())
-    mocker.patch("mem0.memory.main.MEM0_TELEMETRY", False)
     memory = memory_cls()
     memory.config = mocker.MagicMock()
     memory.config.custom_instructions = None
@@ -1116,7 +1109,6 @@ class TestAddPipelineEntityEmbeddingCountGuard:
                 [("person", "Bob"), ("person", "Alice")],
             ],
         )
-        mocker.patch("mem0.memory.main.capture_event")
 
         with caplog.at_level(logging.WARNING):
             result = mock_memory._add_to_vector_store(
@@ -1160,7 +1152,6 @@ class TestAddPipelineEntityEmbeddingCountGuard:
                 [("person", "Bob"), ("person", "Alice")],
             ],
         )
-        mocker.patch("mem0.memory.main.capture_event")
 
         with caplog.at_level(logging.WARNING):
             result = await mock_async_memory._add_to_vector_store(
@@ -1208,7 +1199,6 @@ class TestPartialInsertFailure:
         memory.db.batch_add_history = MagicMock()
         memory.embedding_model.embed_batch = Mock(side_effect=lambda texts, action: [[0.1, 0.2, 0.3] for _ in texts])
         mocker.patch("mem0.memory.main.extract_entities_batch", return_value=[])
-        mocker.patch("mem0.memory.main.capture_event")
 
         return memory
 
@@ -1284,7 +1274,6 @@ class TestAsyncPartialInsertFailure:
         memory.db.batch_add_history = MagicMock()
         memory.embedding_model.embed_batch = Mock(side_effect=lambda texts, action: [[0.1, 0.2, 0.3] for _ in texts])
         mocker.patch("mem0.memory.main.extract_entities_batch", return_value=[])
-        mocker.patch("mem0.memory.main.capture_event")
 
         return memory
 

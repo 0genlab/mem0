@@ -63,11 +63,11 @@ describe("MemoryClient - Initialization", () => {
 // ─── Ping ────────────────────────────────────────────────
 
 describe("MemoryClient - ping()", () => {
-  test("sets telemetryId from user_email in response", async () => {
+  test("sets userId from user_email in response", async () => {
     setupMockFetch();
     const client = new MemoryClient({ apiKey: TEST_API_KEY });
     await client.ping();
-    expect(client.telemetryId).toBe("test@example.com");
+    expect(client.userId).toBe("test@example.com");
   });
 
   test("throws AuthenticationError on 401 response", async () => {

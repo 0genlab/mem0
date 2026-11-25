@@ -5,7 +5,6 @@ import type { Mem0Config, ScopeContext, Scope } from "./types.ts";
 import { DEFAULT_CUSTOM_CATEGORIES } from "./types.ts";
 import { resolveSearchFilters, resolveAddParams } from "./memory/scoping.ts";
 import { formatMemoryList, formatMemoryCompact, groupByCategory } from "./memory/formatting.ts";
-import { captureCommandEvent } from "./telemetry.ts";
 import { PLATFORM_SOURCE } from "./attribution.ts";
 
 // Wire identity is set once on the shared client in entry.ts, which covers
@@ -20,7 +19,6 @@ export function registerCommands(
   mem0: MemoryClient,
   config: Mem0Config,
   getScopeCtx: () => ScopeContext,
-  telemetryCtx?: { apiKey?: string },
 ): void {
   const sendFeedback = (customType: string, content: string): void => {
     pi.sendMessage({ customType, content, display: true });
@@ -59,7 +57,6 @@ export function registerCommands(
         [{ role: "user", content: text }],
         { ...addParams, customCategories: DEFAULT_CUSTOM_CATEGORIES, infer: false, source: PLATFORM_SOURCE },
       );
-      captureCommandEvent("mem0-remember", {}, telemetryCtx);
 
       const storedItems = (Array.isArray(result) ? result : [])
         .map((m) => (m as { memory?: string }).memory)
@@ -84,13 +81,11 @@ export function registerCommands(
       const memories = await searchMemories(query, config.defaultScope);
 
       if (memories.length === 0) {
-        captureCommandEvent("mem0-forget", { result_count: 0 }, telemetryCtx);
         sendFeedback("mem0-forget", `**No matches for "${query}"** — nothing to forget.`);
         return;
       }
 
       const forgotten = (mem: Parameters<typeof formatMemoryCompact>[0]) => {
-        captureCommandEvent("mem0-forget", { deleted_count: 1 }, telemetryCtx);
         sendFeedback(
           "mem0-forget",
           [`**Forgotten from ${config.defaultScope} memory**`, `- ${formatMemoryCompact(mem)}`].join("\n"),
@@ -136,7 +131,6 @@ export function registerCommands(
       }
 
       const memories = await searchMemories(query, config.defaultScope);
-      captureCommandEvent("mem0-search", { result_count: memories.length }, telemetryCtx);
 
       if (memories.length === 0) {
         sendFeedback("mem0-search", `**No matches for "${query}"** · ${config.defaultScope} scope`);
@@ -169,7 +163,6 @@ export function registerCommands(
       const memories = result.results ?? [];
 
       if (memories.length === 0) {
-        captureCommandEvent("mem0-tour", { memory_count: 0, scope }, telemetryCtx);
         sendFeedback("mem0-tour", `**No memories in ${scope} scope yet** — store one with \`/mem0-remember\`.`);
         return;
       }
@@ -188,7 +181,6 @@ export function registerCommands(
         lines.push("");
       }
 
-      captureCommandEvent("mem0-tour", { memory_count: memories.length, scope }, telemetryCtx);
       sendFeedback("mem0-tour", lines.join("\n"));
     },
   });
@@ -216,7 +208,6 @@ export function registerCommands(
       }
 
       config.defaultScope = scope as Scope;
-      captureCommandEvent("mem0-scope", { scope }, telemetryCtx);
       sendFeedback(
         "mem0-scope",
         [
@@ -256,7 +247,6 @@ export function registerCommands(
         `- Auto-capture: ${config.autoCapture ? "on" : "off"}`,
       ];
 
-      captureCommandEvent("mem0-status", { connected, memory_count: count }, telemetryCtx);
       sendFeedback("mem0-status", lines.join("\n"));
     },
   });

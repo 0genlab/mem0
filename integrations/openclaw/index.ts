@@ -52,9 +52,7 @@ import { registerCliCommands } from "./cli/commands.ts";
 import { readPluginAuth } from "./cli/config-file.ts";
 import { registerAllTools } from "./tools/index.ts";
 import type { ToolDeps } from "./tools/index.ts";
-import { captureEvent } from "./telemetry.ts";
 import { createMemoryLifecycle } from "../agent-plugin-core/typescript/src/lifecycle.ts";
-import { bootstrapTelemetryFlag } from "./fs-safe.ts";
 
 // ============================================================================
 // Re-exports (for tests and external consumers)
@@ -93,8 +91,6 @@ const memoryPlugin = definePluginEntry({
   description: "Mem0 memory backend — Mem0 platform or self-hosted open-source",
 
   register(api: OpenClawPluginApi) {
-    bootstrapTelemetryFlag();
-
     // Read auth from openclaw.json plugin config (picks up post-startup login).
     // This is the single source of truth — set via `openclaw mem0 login`.
     const pluginAuth = readPluginAuth();
@@ -104,20 +100,6 @@ const memoryPlugin = definePluginEntry({
     };
     const cfg = mem0ConfigSchema.parse(api.pluginConfig, fileConfig);
     const isMetadataRegistration = api.registrationMode === "cli-metadata";
-
-    // Telemetry context bound to this plugin instance's config
-    const telemetryCtx = {
-      apiKey: cfg.apiKey,
-      mode: cfg.mode,
-      skillsActive: false,
-    };
-    const _captureEvent = (event: string, props?: Record<string, unknown>) => {
-      try {
-        captureEvent(event, props, telemetryCtx);
-      } catch {
-        /* silently swallow */
-      }
-    };
 
     if (isMetadataRegistration) {
       registerCliCommands(
@@ -129,7 +111,6 @@ const memoryPlugin = definePluginEntry({
         (id: string) => `${cfg.userId}:agent:${id}`,
         () => ({ user_id: cfg.userId, top_k: cfg.topK }),
         () => undefined,
-        (cmd: string) => _captureEvent(`openclaw.cli.${cmd}`, { command: cmd }),
       );
       return;
     }
@@ -154,7 +135,6 @@ const memoryPlugin = definePluginEntry({
         (id: string) => `${cfg.userId}:agent:${id}`,
         () => ({ user_id: cfg.userId, top_k: cfg.topK }),
         () => undefined,
-        (cmd: string) => _captureEvent(`openclaw.cli.${cmd}`, { command: cmd }),
       );
 
       api.registerService({
@@ -196,12 +176,7 @@ const memoryPlugin = definePluginEntry({
       resolveUserId(cfg.userId, opts, currentSessionId);
 
     const skillsActive = isSkillsMode(cfg.skills);
-    telemetryCtx.skillsActive = skillsActive;
 
-    _captureEvent("openclaw.plugin.registered", {
-      auto_recall: cfg.autoRecall,
-      auto_capture: cfg.autoCapture,
-    });
 
     api.logger.info(
       `openclaw-mem0: registered (mode: ${cfg.mode}, user: ${cfg.userId}, autoRecall: ${cfg.autoRecall}, autoCapture: ${cfg.autoCapture}, skills: ${skillsActive})`,
@@ -323,12 +298,6 @@ const memoryPlugin = definePluginEntry({
       buildSearchOptions,
       getCurrentSessionId: () => currentSessionId,
       skillsActive,
-      captureToolEvent: (toolName: string, props: Record<string, unknown>) => {
-        _captureEvent(`openclaw.tool.${toolName}`, {
-          tool_name: toolName,
-          ...props,
-        });
-      },
     };
     registerAllTools(toolDeps);
 
@@ -345,7 +314,6 @@ const memoryPlugin = definePluginEntry({
       _agentUserId,
       buildSearchOptions,
       () => currentSessionId,
-      (cmd: string) => _captureEvent(`openclaw.cli.${cmd}`, { command: cmd }),
     );
 
     // ========================================================================
@@ -365,7 +333,6 @@ const memoryPlugin = definePluginEntry({
         },
       },
       skillsActive,
-      _captureEvent,
       lifecycle,
     );
 
@@ -412,10 +379,6 @@ function registerHooks(
     setCurrentSessionId: (id: string) => void;
   },
   skillsActive: boolean = false,
-  _captureEvent: (
-    event: string,
-    props?: Record<string, unknown>,
-  ) => void = () => {},
   lifecycle: ReturnType<typeof createMemoryLifecycle> = createMemoryLifecycle(),
 ) {
   // ========================================================================
@@ -481,7 +444,6 @@ function registerHooks(
       const recallStrategy = cfg.skills?.recall?.strategy ?? "smart";
 
       if (recallEnabled && recallStrategy !== "manual") {
-        const recallStart = Date.now();
         try {
           const query = lifecycle.prepareUserText(sanitizeQuery(event.prompt));
 
@@ -504,12 +466,6 @@ function registerHooks(
           api.logger.info(
             `openclaw-mem0: skills-mode recall (strategy=${recallStrategy}) injecting ${recallResult.memories.length} memories (~${recallResult.tokenEstimate} tokens)`,
           );
-
-          _captureEvent("openclaw.hook.recall", {
-            strategy: recallStrategy,
-            memory_count: recallResult.memories.length,
-            latency_ms: Date.now() - recallStart,
-          });
 
           recallContext = recallResult.context;
         } catch (err) {
@@ -601,7 +557,6 @@ function registerHooks(
         .trim();
       const safePrompt = lifecycle.prepareUserText(cleanPrompt);
 
-      const recallStart = Date.now();
       const recallWork = async () => {
         // Single search with a reasonable candidate pool
         const recallTopK = Math.max((cfg.topK ?? 5) * 2, 10);
@@ -666,12 +621,6 @@ function registerHooks(
               `- ${r.memory}${r.categories?.length ? ` [${r.categories.join(", ")}]` : ""}`,
           )
           .join("\n");
-
-        _captureEvent("openclaw.hook.recall", {
-          strategy: "legacy",
-          memory_count: longTermResults.length,
-          latency_ms: Date.now() - recallStart,
-        });
 
         api.logger.info(
           `openclaw-mem0: injecting ${longTermResults.length} memories into context`,
@@ -902,15 +851,10 @@ function registerHooks(
       });
 
       const addOpts = buildAddOptions(undefined, undefined, sessionId);
-      const captureStart = Date.now();
       provider
         .add(formattedMessages, addOpts)
         .then((result) => {
           const capturedCount = result.results?.length ?? 0;
-          _captureEvent("openclaw.hook.capture", {
-            captured_count: capturedCount,
-            latency_ms: Date.now() - captureStart,
-          });
           if (capturedCount > 0) {
             api.logger.info(
               `openclaw-mem0: auto-captured ${capturedCount} memories`,

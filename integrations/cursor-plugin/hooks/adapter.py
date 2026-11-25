@@ -16,7 +16,6 @@ CORE = BUNDLED_CORE if BUNDLED_CORE.is_dir() else HERE.parents[2] / "core" / "py
 sys.path.insert(0, str(CORE))
 
 import hook_runner  # noqa: E402
-import telemetry  # noqa: E402
 from memory_core import (  # noqa: E402
     configure_harness,
     record_tool,
@@ -77,7 +76,6 @@ def main() -> int:
     sys.stdin = io.StringIO(json.dumps(normalized["payload"]))
 
     configure_harness("cursor", data_dir_name="cursor-plugin", source_tag="cursor_plugin")
-    telemetry.init(harness="cursor", source_tag="CURSOR_PLUGIN")
     with contextlib.redirect_stdout(io.StringIO()):
         result = hook_runner.run(
             extra_actions={

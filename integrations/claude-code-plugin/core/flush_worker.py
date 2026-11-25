@@ -13,7 +13,6 @@ import sys
 import time
 from pathlib import Path
 
-import telemetry
 from memory_core import (
     EvidenceStore,
     checkpoint_session,
@@ -36,7 +35,6 @@ def main() -> int:
             data_dir_name=os.environ.get("MEM0_PLUGIN_DATA_DIR_NAME", ""),
             source_tag=source_tag,
         )
-        telemetry.init(harness=harness, source_tag=source_tag.upper())
     completed = False
     try:
         payload = json.loads(handoff_path.read_text(encoding="utf-8"))
@@ -83,7 +81,6 @@ def main() -> int:
             store.close()
         return 0
     finally:
-        telemetry.flush()
         if completed:
             try:
                 handoff_path.unlink()

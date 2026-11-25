@@ -1449,7 +1449,6 @@ def test_flush_worker_restores_harness_identity_from_child_environment(isolated_
 
     with (
         patch.object(flush_worker, "configure_harness", wraps=memory_core.configure_harness) as configure,
-        patch.object(flush_worker.telemetry, "init") as telemetry_init,
         patch.object(flush_worker, "checkpoint_session", return_value={"status": "nothing-to-flush"}),
     ):
         flush_worker.main()
@@ -1460,7 +1459,6 @@ def test_flush_worker_restores_harness_identity_from_child_environment(isolated_
         data_dir_name="kimi-plugin",
         source_tag="kimi_plugin",
     )
-    telemetry_init.assert_called_once_with(harness="kimi", source_tag="KIMI_PLUGIN")
     memory_core.configure_harness(
         "claude-code", data_dir_name="claude-code-plugin", source_tag="claude_code_plugin"
     )

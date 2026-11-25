@@ -695,8 +695,7 @@ def test_add_infer_false_embeds_once(mock_sqlite, mock_llm_factory, mock_vector_
     mock_vector_store.search.return_value = []
     mock_vector_store.insert.return_value = None
     mock_vector_store.get.return_value = None
-    telemetry_vector_store = MagicMock()
-    mock_vector_factory.side_effect = [mock_vector_store, telemetry_vector_store]
+    mock_vector_factory.return_value = mock_vector_store
 
     mock_llm_factory.return_value = MagicMock()
     mock_sqlite.return_value = MagicMock()
@@ -728,8 +727,7 @@ def test_add_infer_true_caches_embedding_on_llm_rewrite(mock_sqlite, mock_llm_fa
     mock_vector_store.search.return_value = []
     mock_vector_store.insert.return_value = None
     mock_vector_store.get.return_value = None
-    telemetry_vector_store = MagicMock()
-    mock_vector_factory.side_effect = [mock_vector_store, telemetry_vector_store]
+    mock_vector_factory.return_value = mock_vector_store
 
     # V3 single-call extraction: LLM returns extracted memories directly
     mock_llm = MagicMock()
@@ -785,8 +783,7 @@ def test_update_infer_true_caches_embedding_on_llm_rewrite(mock_sqlite, mock_llm
     mock_vector_store.insert.return_value = None
     mock_vector_store.update.return_value = None
     mock_vector_store.keyword_search.return_value = None
-    telemetry_vector_store = MagicMock()
-    mock_vector_factory.side_effect = [mock_vector_store, telemetry_vector_store]
+    mock_vector_factory.return_value = mock_vector_store
 
     # V3 single-call extraction: LLM returns extracted memories directly
     mock_llm = MagicMock()
@@ -1157,8 +1154,7 @@ def test_sync_create_memory_stores_text_lemmatized(mock_sqlite, mock_llm_factory
 
     mock_vector_store = MagicMock()
     mock_vector_store.insert.return_value = None
-    telemetry_vector_store = MagicMock()
-    mock_vector_factory.side_effect = [mock_vector_store, telemetry_vector_store]
+    mock_vector_factory.return_value = mock_vector_store
 
     mock_llm_factory.return_value = MagicMock()
     mock_sqlite.return_value = MagicMock()
@@ -1227,13 +1223,12 @@ async def test_async_create_memory_stores_text_lemmatized(mock_sqlite, mock_llm_
 class TestHybridSearchWarning:
     """Warn at init when vector store does not support keyword_search."""
 
-    @patch("mem0.memory.telemetry.capture_event")
     @patch("mem0.memory.main.SQLiteManager")
     @patch("mem0.utils.factory.LlmFactory.create")
     @patch("mem0.utils.factory.EmbedderFactory.create")
     @patch("mem0.utils.factory.VectorStoreFactory.create")
     def test_warning_for_store_without_keyword_search(
-        self, mock_vs_factory, mock_emb, mock_llm, mock_sqlite, _cap, caplog
+        self, mock_vs_factory, mock_emb, mock_llm, mock_sqlite, caplog
     ):
         import logging
 
@@ -1264,13 +1259,12 @@ class TestHybridSearchWarning:
 
         assert any("does not support keyword search" in r.message for r in caplog.records)
 
-    @patch("mem0.memory.telemetry.capture_event")
     @patch("mem0.memory.main.SQLiteManager")
     @patch("mem0.utils.factory.LlmFactory.create")
     @patch("mem0.utils.factory.EmbedderFactory.create")
     @patch("mem0.utils.factory.VectorStoreFactory.create")
     def test_no_warning_for_store_with_keyword_search(
-        self, mock_vs_factory, mock_emb, mock_llm, mock_sqlite, _cap, caplog
+        self, mock_vs_factory, mock_emb, mock_llm, mock_sqlite, caplog
     ):
         import logging
 

@@ -409,7 +409,6 @@ export function registerCliCommands(
     sessionKey?: string,
   ) => SearchOptions,
   getCurrentSessionId: () => string | undefined,
-  captureCliEvent?: (command: string) => void,
 ): void {
   api.registerCli(
     ({ program }) => {
@@ -417,18 +416,6 @@ export function registerCliCommands(
         .command("mem0")
         .description("Mem0 memory plugin commands\n\nTip: All commands support --json for machine-readable output (for LLM agents)")
         .configureHelp({ sortSubcommands: false, subcommandTerm: (cmd) => cmd.name() });
-
-      // Telemetry: fire event for each CLI subcommand
-      if (captureCliEvent) {
-        mem0.hook("preAction", (_thisCmd, actionCmd) => {
-          try {
-            const name = actionCmd.name();
-            const parent = actionCmd.parent?.name();
-            const full = parent && parent !== "mem0" ? `${parent}.${name}` : name;
-            captureCliEvent(full);
-          } catch { /* silently swallow */ }
-        });
-      }
 
       // ====================================================================
       // init (matches: mem0 init)

@@ -207,11 +207,11 @@
       },
       "anonymousTelemetryId": {
         "type": "string",
-        "description": "Persistent anonymous telemetry identifier"
+        "description": "Deprecated, ignored. Accepted so configs written by earlier versions still load."
       },
       "keyFingerprint": {
         "type": "string",
-        "description": "Digest of the API key userEmail was resolved for. Set automatically; a mismatch re-resolves the account."
+        "description": "Deprecated, ignored. Accepted so configs written by earlier versions still load."
       },
       "oss": {
         "type": "object",
@@ -305,10 +305,6 @@
     {
       "endpointClass": "dashboard",
       "hosts": ["app.mem0.ai"]
-    },
-    {
-      "endpointClass": "telemetry",
-      "hosts": ["us.i.posthog.com"]
     }
   ]
 }

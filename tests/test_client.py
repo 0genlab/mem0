@@ -24,10 +24,9 @@ def mock_memory_client():
         )
         mock_httpx.return_value = mock_http_client
 
-        with patch("mem0.client.main.capture_client_event"):
-            from mem0.client.main import MemoryClient
-            client = MemoryClient(api_key="test-api-key")
-            yield client
+        from mem0.client.main import MemoryClient
+        client = MemoryClient(api_key="test-api-key")
+        yield client
 
 
 class TestSearchEntityParamRejection:
@@ -255,8 +254,7 @@ class TestGetAllPageSizeQueryParams:
         mock_response.raise_for_status.return_value = None
         client.async_client.post = AsyncMock(return_value=mock_response)
 
-        with patch("mem0.client.main.capture_client_event"):
-            await client.get_all(filters={"user_id": "u1"}, page_size=50)
+        await client.get_all(filters={"user_id": "u1"}, page_size=50)
 
         client.async_client.post.assert_called_once_with(
             "/v3/memories/",
@@ -276,8 +274,7 @@ class TestGetAllPageSizeQueryParams:
         mock_response.raise_for_status.return_value = None
         client.async_client.post = AsyncMock(return_value=mock_response)
 
-        with patch("mem0.client.main.capture_client_event"):
-            await client.get_all(filters={"user_id": "u1"}, page=0)
+        await client.get_all(filters={"user_id": "u1"}, page=0)
 
         client.async_client.post.assert_called_once_with(
             "/v3/memories/",
@@ -297,8 +294,7 @@ class TestGetAllPageSizeQueryParams:
         mock_response.raise_for_status.return_value = None
         client.async_client.post = AsyncMock(return_value=mock_response)
 
-        with patch("mem0.client.main.capture_client_event"):
-            await client.get_all(filters={"user_id": "u1"}, page=0, page_size=0)
+        await client.get_all(filters={"user_id": "u1"}, page=0, page_size=0)
 
         client.async_client.post.assert_called_once_with(
             "/v3/memories/",
@@ -317,8 +313,7 @@ class TestGetAllPageSizeQueryParams:
         mock_response.raise_for_status.return_value = None
         client.async_client.post = AsyncMock(return_value=mock_response)
 
-        with patch("mem0.client.main.capture_client_event"):
-            await client.get_all(filters={"user_id": "u1"})
+        await client.get_all(filters={"user_id": "u1"})
 
         client.async_client.post.assert_called_once_with(
             "/v3/memories/",
@@ -505,11 +500,10 @@ class TestPathSegmentEncoding:
 
         memory_id = "mem/a?b#c"
 
-        with patch("mem0.client.main.capture_client_event"):
-            await client.get(memory_id)
-            await client.update(memory_id, text="updated")
-            await client.delete(memory_id)
-            await client.history(memory_id)
+        await client.get(memory_id)
+        await client.update(memory_id, text="updated")
+        await client.delete(memory_id)
+        await client.history(memory_id)
 
         assert client.async_client.get.call_args_list[0].args[0] == "/v1/memories/mem%2Fa%3Fb%23c/"
         assert client.async_client.put.call_args.args[0] == "/v1/memories/mem%2Fa%3Fb%23c/"
@@ -526,8 +520,7 @@ class TestPathSegmentEncoding:
         client.async_client = MagicMock()
         client.async_client.delete = AsyncMock(return_value=self._setup_response())
 
-        with patch("mem0.client.main.capture_client_event"):
-            await client.delete_users(user_id="org/team?active#frag")
+        await client.delete_users(user_id="org/team?active#frag")
 
         assert client.async_client.delete.call_args.args[0] == (
             "/v2/entities/user/org%2Fteam%3Factive%23frag/"
@@ -557,11 +550,10 @@ class TestValidateApiKeyHttpError:
             mock_http_client.get.return_value = response
             mock_httpx.return_value = mock_http_client
 
-            with patch("mem0.client.main.capture_client_event"):
-                from mem0.client.main import MemoryClient
+            from mem0.client.main import MemoryClient
 
-                with pytest.raises(ValueError) as exc_info:
-                    MemoryClient(api_key="test-api-key")
+            with pytest.raises(ValueError) as exc_info:
+                MemoryClient(api_key="test-api-key")
 
         # The HTTP status must surface as the intended "Error: ..." ValueError,
         # not the raw JSONDecodeError from parsing the HTML body.
@@ -577,11 +569,10 @@ class TestValidateApiKeyHttpError:
         response.raise_for_status.side_effect = http_error
 
         with patch("mem0.client.main.requests.get", return_value=response):
-            with patch("mem0.client.main.capture_client_event"):
-                from mem0.client.main import AsyncMemoryClient
+            from mem0.client.main import AsyncMemoryClient
 
-                with pytest.raises(ValueError) as exc_info:
-                    AsyncMemoryClient(api_key="test-api-key")
+            with pytest.raises(ValueError) as exc_info:
+                AsyncMemoryClient(api_key="test-api-key")
 
         assert not isinstance(exc_info.value, requests.exceptions.JSONDecodeError)
         assert "Error:" in str(exc_info.value)

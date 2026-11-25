@@ -68,7 +68,6 @@ class Namespace:
         self.notes_a.mkdir(parents=True)
         self.notes_b.mkdir(parents=True)
         os.environ["MEM0_CODE_DATA_DIR"] = str(tmp / "data")
-        os.environ["MEM0_CODE_TELEMETRY"] = "false"
         os.environ["MEM0_CODE_EXTRACTION_WAIT_SECONDS"] = "180"
         self.store = memory_core.EvidenceStore()
         self.reads = 0

@@ -123,7 +123,6 @@ pi-agent-plugin/
 │   ├── commands.ts       # 6 slash commands
 │   ├── prompt.ts         # System prompt injection (MEMORY_POLICY)
 │   ├── types.ts          # Shared interfaces and categories
-│   ├── telemetry.ts      # PostHog telemetry (batched, PII-safe)
 │   ├── config/           # Config loading (~/.pi/agent/mem0-config.json)
 │   ├── memory/           # Tool registration, scoping (git root), formatting
 │   └── capture/          # Auto-capture from conversations (user + assistant)

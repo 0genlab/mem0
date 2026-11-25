@@ -11,7 +11,7 @@ The wrapper hides the two remaining differences:
 - ``app_id`` is a platform-only scope; OSS ``Memory.add`` has no ``app_id``
   parameter, so it is rejected up front for the OSS backend rather than surfacing
   as a ``TypeError`` mid-call.
-- the telemetry ``source`` tag is attached to platform writes only (OSS
+- the ``source`` attribution tag is attached to platform writes only (OSS
   ``Memory.add`` has a fixed signature and would reject an unknown kwarg).
 """
 
@@ -28,8 +28,8 @@ from typing import Any
 _PLATFORM_CLIENTS = {"MemoryClient"}
 
 # Tags platform writes so Mem0's backend attributes the memory to this integration
-# in telemetry (recognized values live in the backend's KNOWN_EVENT_SOURCES
-# allowlist; unknown ones bucket into "OTHERS"). Platform only.
+# (recognized values live in the backend's KNOWN_EVENT_SOURCES allowlist;
+# unknown ones bucket into "OTHERS"). Platform only.
 _SOURCE = "STRANDS"
 
 
@@ -125,7 +125,7 @@ class Mem0ServiceClient:
             )
 
     def _write_extras(self) -> dict[str, str]:
-        """Extra kwargs attached to platform writes: the telemetry ``source`` tag."""
+        """Extra kwargs attached to platform writes: the ``source`` attribution tag."""
         return {"source": _SOURCE} if self.is_platform else {}
 
     def store_memory(

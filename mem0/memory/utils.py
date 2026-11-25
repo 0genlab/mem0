@@ -1,4 +1,3 @@
-import hashlib
 import logging
 import re
 from typing import Any, Dict, List
@@ -230,24 +229,6 @@ def parse_vision_messages(messages, llm=None, vision_details="auto"):
             returned_messages.append(msg)
 
     return returned_messages
-
-
-def process_telemetry_filters(filters):
-    """
-    Process the telemetry filters
-    """
-    if filters is None:
-        return [], {}
-
-    encoded_ids = {}
-    if "user_id" in filters:
-        encoded_ids["user_id"] = hashlib.md5(filters["user_id"].encode()).hexdigest()
-    if "agent_id" in filters:
-        encoded_ids["agent_id"] = hashlib.md5(filters["agent_id"].encode()).hexdigest()
-    if "run_id" in filters:
-        encoded_ids["run_id"] = hashlib.md5(filters["run_id"].encode()).hexdigest()
-
-    return list(filters.keys()), encoded_ids
 
 
 def sanitize_relationship_for_cypher(relationship) -> str:

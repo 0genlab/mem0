@@ -11,7 +11,7 @@ import { randomUUID } from "crypto";
 import {
   describeIntegration,
   createTestClient,
-  suppressTelemetryNoise,
+  suppressInitNoise,
   seedTestMemories,
   cleanupTestUser,
   withRetry,
@@ -26,7 +26,7 @@ describeIntegration("MemoryClient Integration — Users & Project", () => {
   let cleanup: () => void;
 
   beforeAll(async () => {
-    cleanup = suppressTelemetryNoise();
+    cleanup = suppressInitNoise();
     client = await createTestClient();
     await seedTestMemories(client, TEST_USER_ID);
   });

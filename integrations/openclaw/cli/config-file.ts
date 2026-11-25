@@ -34,9 +34,6 @@ export interface PluginAuthConfig {
   autoRecall?: boolean;
   autoCapture?: boolean;
   topK?: number;
-  anonymousTelemetryId?: string;
-  /** SHA-256 prefix of the API key userEmail was resolved for. */
-  keyFingerprint?: string;
 }
 
 // ============================================================================
@@ -136,10 +133,6 @@ export function readPluginAuth(): PluginAuthConfig {
     autoRecall: cfg.autoRecall as boolean | undefined,
     autoCapture: cfg.autoCapture as boolean | undefined,
     topK: cfg.topK as number | undefined,
-    anonymousTelemetryId: cfg.anonymousTelemetryId as string | undefined,
-    // Without this the reader silently drops it, every fingerprint comparison
-    // fails against undefined, and the resolved email is never used again.
-    keyFingerprint: cfg.keyFingerprint as string | undefined,
   };
 }
 
@@ -239,29 +232,4 @@ export function enableSkillsConfig(userId: string): void {
 export function getBaseUrl(): string {
   const auth = readPluginAuth();
   return auth.baseUrl || DEFAULT_BASE_URL;
-}
-
-/** Forget the resolved account, so the next capture re-resolves for the current key. */
-export function clearResolvedAccount(): void {
-  const full = readFullConfig() as any;
-  const cfg = full?.plugins?.entries?.[PLUGIN_ID]?.config;
-  if (!cfg) return;
-  let changed = false;
-  for (const key of ["userEmail", "keyFingerprint"]) {
-    if (key in cfg) {
-      delete cfg[key];
-      changed = true;
-    }
-  }
-  if (changed) writeFullConfig(full);
-}
-
-/** Remove anonymousTelemetryId from config (after PostHog aliasing) */
-export function clearAnonymousTelemetryId(): void {
-  const full = readFullConfig() as any;
-  const cfg = full?.plugins?.entries?.[PLUGIN_ID]?.config;
-  if (cfg && "anonymousTelemetryId" in cfg) {
-    delete cfg.anonymousTelemetryId;
-    writeFullConfig(full);
-  }
 }

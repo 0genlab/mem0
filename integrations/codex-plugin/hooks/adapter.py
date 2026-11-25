@@ -12,7 +12,6 @@ CORE = BUNDLED_CORE if BUNDLED_CORE.is_dir() else HERE.parents[2] / "core" / "py
 sys.path.insert(0, str(CORE))
 
 import hook_runner  # noqa: E402
-import telemetry  # noqa: E402
 from memory_core import (  # noqa: E402
     configure_harness,
     record_subagent_start,
@@ -21,7 +20,6 @@ from memory_core import (  # noqa: E402
 )
 
 configure_harness("codex", data_dir_name="codex-plugin", source_tag="codex_plugin")
-telemetry.init(harness="codex", source_tag="CODEX_PLUGIN")
 
 
 def _subagent_start(store, hook_input):

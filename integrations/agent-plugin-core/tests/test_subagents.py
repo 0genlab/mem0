@@ -69,7 +69,7 @@ def test_subagent_hooks_preserve_parent_scope_and_correlate_completion(tmp_path,
         start, stop = "subagent-start", "subagent-stop"
 
     env = {key: value for key, value in os.environ.items() if not key.startswith(("MEM0_", "CLAUDE_PLUGIN_"))}
-    env.update(MEM0_CODE_DATA_DIR=str(database.parent), MEM0_TELEMETRY="false", MEM0_API_URL="http://127.0.0.1:1")
+    env.update(MEM0_CODE_DATA_DIR=str(database.parent), MEM0_API_URL="http://127.0.0.1:1")
 
     def invoke(event, body):
         result = subprocess.run(

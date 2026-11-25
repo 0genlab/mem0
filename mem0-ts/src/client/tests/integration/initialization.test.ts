@@ -15,7 +15,7 @@ import {
 import {
   describeIntegration,
   createTestClient,
-  suppressTelemetryNoise,
+  suppressInitNoise,
 } from "./helpers";
 
 jest.setTimeout(60_000);
@@ -25,7 +25,7 @@ describeIntegration("MemoryClient Integration — Initialization", () => {
   let cleanup: () => void;
 
   beforeAll(async () => {
-    cleanup = suppressTelemetryNoise();
+    cleanup = suppressInitNoise();
     client = await createTestClient();
   });
 
@@ -34,7 +34,7 @@ describeIntegration("MemoryClient Integration — Initialization", () => {
   test("client pings successfully", async () => {
     await client.ping();
     // org/project are now resolved internally from the API key
-    expect(client.telemetryId).toBeTruthy();
+    expect(client.userId).toBeTruthy();
   });
 
   test("get with invalid ID throws ValidationError", async () => {

@@ -96,7 +96,6 @@ class TestSessionScopeWiring:
 
     @pytest.fixture
     def memory(self, mocker):
-        mocker.patch("mem0.memory.main.capture_event")
         mock_embedder = mocker.MagicMock()
         mock_embedder.return_value.embed.return_value = [0.1, 0.2, 0.3]
         mocker.patch("mem0.utils.factory.EmbedderFactory.create", mock_embedder)
