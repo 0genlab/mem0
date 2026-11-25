@@ -4,7 +4,6 @@
  * Platform (SaaS) backend — communicates with api.mem0.ai.
  */
 
-import { PLUGIN_VERSION } from "../telemetry.ts";
 import {
   APIError,
   type AddOptions,
@@ -16,6 +15,9 @@ import {
   NotFoundError,
   type SearchOptions,
 } from "./base.ts";
+
+declare const __OPENCLAW_PLUGIN_VERSION__: string;
+const PLUGIN_VERSION: string = __OPENCLAW_PLUGIN_VERSION__;
 
 export class PlatformBackend implements Backend {
   private baseUrl: string;

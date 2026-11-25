@@ -12,7 +12,7 @@ import { randomUUID } from "crypto";
 import {
   describeIntegration,
   createTestClient,
-  suppressTelemetryNoise,
+  suppressInitNoise,
   waitForMemories,
   cleanupTestUser,
 } from "./helpers";
@@ -27,7 +27,7 @@ describeIntegration("MemoryClient Integration — CRUD", () => {
   let memoryIds: string[] = [];
 
   beforeAll(async () => {
-    cleanup = suppressTelemetryNoise();
+    cleanup = suppressInitNoise();
     client = await createTestClient();
   });
 

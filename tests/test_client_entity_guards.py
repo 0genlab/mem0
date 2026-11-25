@@ -25,8 +25,7 @@ def sync_client():
     client.client = MagicMock()
     client.client.post.return_value = _ok_response()
     client.client.delete.return_value = _ok_response()
-    with patch("mem0.client.main.capture_client_event"):
-        yield client
+    yield client
 
 
 @pytest.fixture
@@ -35,8 +34,7 @@ def async_client():
     client.async_client = MagicMock()
     client.async_client.post = AsyncMock(return_value=_ok_response())
     client.async_client.delete = AsyncMock(return_value=_ok_response())
-    with patch("mem0.client.main.capture_client_event"):
-        yield client
+    yield client
 
 
 class TestDeleteAllBlankEntityIds:

@@ -84,15 +84,14 @@ def replace_output(staged: Path, output: Path) -> Path:
 def _render_harness_id(host: str, *, portable: bool = False) -> str:
     """Emit core/_harness_id.py for one host.
 
-    Carries both vocabularies from a single definition: the PostHog `source` tag
+    Carries both vocabularies from a single definition: the plugin source tag
     and the platform's X-Mem0-Source / X-Application pair. Keeping them together
     is what stops the two from drifting into separate vocabularies for the same
     thing.
 
     The portable bundle runs in whatever editor a user drops it into, so it does
     not know its host and must not guess one. HARNESS_ID stays "coding-agent",
-    which is true and useful for grouping in PostHog, but PLATFORM_APPLICATION is
-    left empty: X-Application names a real host app, is checked against an
+    which is true, but PLATFORM_APPLICATION is left empty: X-Application names a real host app, is checked against an
     allowlist server-side, and a value that is always discarded is worse than no
     value -- it reads like an attribution we have and do not.
     """
@@ -129,9 +128,7 @@ def _bundle_python(
         shutil.copy2(source, core / source.name)
 
     # Generated per host so identity does not depend on an entrypoint remembering
-    # to call telemetry.init(). mcp_server.py and the detached telemetry.py sender
-    # never did, which is how MCP searches reported harness=generic and every
-    # batch they drained was labelled MEM0_PLUGIN regardless of the real host.
+    # to configure itself.
     (core / "_harness_id.py").write_text(_render_harness_id(host, portable=portable), encoding="utf-8")
 
     values = {

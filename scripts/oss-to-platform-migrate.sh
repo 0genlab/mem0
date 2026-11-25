@@ -14,11 +14,9 @@ from collections import Counter
 import getpass
 import json
 import os
-import platform
 import re
 import stat
 import sys
-import uuid
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
@@ -28,8 +26,6 @@ from urllib.request import Request, urlopen
 
 
 DEFAULT_BASE_URL = "https://api.mem0.ai"
-POSTHOG_API_KEY = "phc_hgJkUVJFYtmaJqrvf6CYN67TIQ8yhXAkWzUn9AMU4yX"
-POSTHOG_CAPTURE_URL = "https://us.i.posthog.com/i/v0/e/"
 SCRIPT_VERSION = "oss-to-platform-migrate-v1"
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 DEFAULT_QDRANT_COLLECTION = "mem0"
@@ -83,87 +79,6 @@ def load_config(path: Path) -> Dict[str, Any]:
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}
-
-
-def write_config(path: Path, config: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    os.chmod(path.parent, stat.S_IRWXU)
-    path.write_text(json.dumps(config, indent=4) + "\n", encoding="utf-8")
-    os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
-
-
-def ensure_oss_anon_id(path: Path, config: Dict[str, Any]) -> str:
-    existing = config.get("user_id")
-    if isinstance(existing, str) and existing:
-        return existing
-
-    generated = str(uuid.uuid4())
-    config["user_id"] = generated
-    try:
-        write_config(path, config)
-    except Exception:
-        # Keep the run usable even on read-only home directories. Telemetry can
-        # still use the transient ID for this run.
-        pass
-    return generated
-
-
-def read_anon_ids(config: Dict[str, Any], fallback_oss_id: str) -> Dict[str, Any]:
-    telemetry = config.get("telemetry")
-    if not isinstance(telemetry, dict):
-        telemetry = {}
-    aliased_pairs = telemetry.get("aliased_pairs")
-    if not isinstance(aliased_pairs, list):
-        aliased_pairs = []
-    return {
-        "oss": config.get("user_id") if isinstance(config.get("user_id"), str) else fallback_oss_id,
-        "cli": telemetry.get("anonymous_id") if isinstance(telemetry.get("anonymous_id"), str) else None,
-        "aliased_pairs": [item for item in aliased_pairs if isinstance(item, str)],
-    }
-
-
-def primary_anon_id(anon_ids: Dict[str, Any]) -> str:
-    return anon_ids.get("oss") or anon_ids.get("cli") or "anonymous_user"
-
-
-def unique_anon_ids(anon_ids: Dict[str, Any]) -> List[str]:
-    seen: Set[str] = set()
-    result: List[str] = []
-    for anon_id in (anon_ids.get("oss"), anon_ids.get("cli")):
-        if not anon_id or anon_id in seen:
-            continue
-        seen.add(anon_id)
-        result.append(anon_id)
-    return result
-
-
-def alias_pair_marker(anon_id: str, email: str) -> str:
-    return sha256(f"{anon_id}\0{email}".encode("utf-8")).hexdigest()
-
-
-def is_aliased(config: Dict[str, Any], anon_id: str, email: str) -> bool:
-    telemetry = config.get("telemetry")
-    if not isinstance(telemetry, dict):
-        return False
-    aliased_pairs = telemetry.get("aliased_pairs")
-    if not isinstance(aliased_pairs, list):
-        return False
-    return alias_pair_marker(anon_id, email) in aliased_pairs
-
-
-def mark_aliased(path: Path, config: Dict[str, Any], anon_id: str, email: str) -> None:
-    telemetry = config.get("telemetry")
-    if not isinstance(telemetry, dict):
-        telemetry = {}
-    aliased_pairs = telemetry.get("aliased_pairs")
-    if not isinstance(aliased_pairs, list):
-        aliased_pairs = []
-    marker = alias_pair_marker(anon_id, email)
-    if marker not in aliased_pairs:
-        aliased_pairs.append(marker)
-    telemetry["aliased_pairs"] = aliased_pairs
-    config["telemetry"] = telemetry
-    write_config(path, config)
 
 
 def normalize_email(email: str) -> str:
@@ -223,97 +138,6 @@ def request_json(
     except json.JSONDecodeError as exc:
         raise MigrationError(f"Expected JSON response from {url}") from exc
     return parsed if isinstance(parsed, dict) else {}
-
-
-def post_json_best_effort(url: str, payload: Dict[str, Any], timeout: float = 5.0) -> bool:
-    data = json.dumps(payload).encode("utf-8")
-    req = Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
-    try:
-        with urlopen(req, timeout=timeout) as resp:
-            resp.read()
-            return 200 <= resp.status < 300
-    except Exception:
-        return False
-
-
-def telemetry_enabled() -> bool:
-    raw = os.environ.get("MEM0_TELEMETRY", "true")
-    return raw.lower() in ("true", "1", "yes")
-
-
-def telemetry_url() -> str:
-    return os.environ.get("MEM0_MIGRATE_TELEMETRY_URL", POSTHOG_CAPTURE_URL)
-
-
-def base_event_properties(anon_ids: Dict[str, Any], email: Optional[str] = None) -> Dict[str, Any]:
-    properties: Dict[str, Any] = {
-        "client_source": "python",
-        "client_version": SCRIPT_VERSION,
-        "migration_phase": "migration",
-        "local_anonymous_id": primary_anon_id(anon_ids),
-        "oss_anonymous_id": anon_ids.get("oss"),
-        "cli_anonymous_id": anon_ids.get("cli"),
-        "python_version": sys.version,
-        "os": sys.platform,
-        "os_version": platform.version(),
-        "os_release": platform.release(),
-        "machine": platform.machine(),
-        "timestamp": utc_now(),
-        "$lib": "posthog-python",
-    }
-    if email:
-        properties["authenticated_email"] = email
-    return properties
-
-
-def capture_migration_event(
-    event_name: str,
-    anon_ids: Dict[str, Any],
-    *,
-    email: Optional[str] = None,
-    additional: Optional[Dict[str, Any]] = None,
-) -> bool:
-    if not telemetry_enabled():
-        return False
-    distinct_id = email or primary_anon_id(anon_ids)
-    properties = base_event_properties(anon_ids, email)
-    if additional:
-        properties.update(additional)
-    payload = {
-        "api_key": POSTHOG_API_KEY,
-        "distinct_id": distinct_id,
-        "event": event_name,
-        "properties": properties,
-    }
-    return post_json_best_effort(telemetry_url(), payload)
-
-
-def capture_identify(anon_id: str, email: str) -> bool:
-    if not telemetry_enabled() or not anon_id or not email or anon_id == email:
-        return False
-    payload = {
-        "api_key": POSTHOG_API_KEY,
-        "distinct_id": email,
-        "event": "$identify",
-        "properties": {
-            "$anon_distinct_id": anon_id,
-            "client_source": "python",
-            "client_version": SCRIPT_VERSION,
-            "$lib": "posthog-python",
-        },
-    }
-    return post_json_best_effort(telemetry_url(), payload)
-
-
-def stitch_identities(config_path_value: Path, config: Dict[str, Any], anon_ids: Dict[str, Any], email: str) -> None:
-    for anon_id in unique_anon_ids(anon_ids):
-        if anon_id == email or is_aliased(config, anon_id, email):
-            continue
-        if capture_identify(anon_id, email):
-            try:
-                mark_aliased(config_path_value, config, anon_id, email)
-            except Exception:
-                pass
 
 
 def auth_headers(language: str = "python") -> Dict[str, str]:
@@ -735,7 +559,7 @@ def write_export_file(output_path: Path, artifact: Dict[str, Any]) -> None:
     os.chmod(output_path, stat.S_IRUSR | stat.S_IWUSR)
 
 
-def export_qdrant_memories(args: argparse.Namespace, anon_ids: Dict[str, Any]) -> Tuple[Path, int]:
+def export_qdrant_memories(args: argparse.Namespace) -> Tuple[Path, int]:
     base_url = qdrant_url(args)
     api_key = qdrant_api_key(args)
     collection_name = qdrant_collection(args)
@@ -765,11 +589,6 @@ def export_qdrant_memories(args: argparse.Namespace, anon_ids: Dict[str, Any]) -
                 "run_id": args.run_id,
                 "all": args.all,
             },
-        },
-        "local_anonymous_id": primary_anon_id(anon_ids),
-        "anonymous_ids": {
-            "oss": anon_ids.get("oss"),
-            "cli": anon_ids.get("cli"),
         },
         "record_count": len(records),
         "records": records,
@@ -1071,8 +890,6 @@ def main(argv: List[str]) -> int:
 
     path = config_path()
     config = load_config(path)
-    oss_anon_id = ensure_oss_anon_id(path, config)
-    anon_ids = read_anon_ids(config, oss_anon_id)
     base_url = api_base_url(args, config)
 
     print_info("Mem0 OSS to Platform migration")
@@ -1091,10 +908,7 @@ def main(argv: List[str]) -> int:
         print_info("Memories will be imported to your authenticated Mem0 Platform account.")
     print_info("")
 
-    capture_migration_event("oss.migrate.started", anon_ids, additional={"base_url": base_url})
-
     try:
-        email = None
         api_key = None
         output_path = None
         export_count = 0
@@ -1106,70 +920,32 @@ def main(argv: List[str]) -> int:
             if not api_key:
                 raise MigrationError("--import-only requires --api-key, MEM0_API_KEY, or a stored Platform API key.")
             try:
-                email = validate_api_key(api_key, base_url)
+                validate_api_key(api_key, base_url)
             except MigrationError:
                 if key_source in ("flag", "env"):
                     raise
-                email = None
-            if email:
-                capture_migration_event(
-                    "oss.migrate.authenticated",
-                    anon_ids,
-                    email=email,
-                    additional={"auth_method": f"{key_source}_api_key", "base_url": base_url},
-                )
-                stitch_identities(path, config, anon_ids, email)
             print_info("Phase 1/1: Import memories into Mem0 Platform")
             import_summary = import_platform_memories(input_path, api_key, base_url)
         elif not args.export_only:
             phase_label = "Phase 1/1" if args.auth_only else "Phase 1/3"
             print_info(f"{phase_label}: Authenticate with Mem0 Platform")
-            api_key, email, auth_method = resolve_auth(args, config, base_url)
-            capture_migration_event(
-                "oss.migrate.authenticated",
-                anon_ids,
-                email=email,
-                additional={"auth_method": auth_method, "base_url": base_url},
-            )
-            stitch_identities(path, config, anon_ids, email)
+            api_key, email, _ = resolve_auth(args, config, base_url)
             print_info(f"Authenticated as {email}")
             print_info("")
 
         if not args.auth_only:
             if args.export_only:
                 print_info("Phase 1/1: Export Python OSS memories from hosted Qdrant")
-                output_path, export_count = export_qdrant_memories(args, anon_ids)
+                output_path, export_count = export_qdrant_memories(args)
             elif not args.import_only:
                 print_info("Phase 2/3: Export Python OSS memories from hosted Qdrant")
-                output_path, export_count = export_qdrant_memories(args, anon_ids)
+                output_path, export_count = export_qdrant_memories(args)
                 print_info(f"Exported {export_count} memories to {output_path}")
                 print_info("")
                 print_info("Phase 3/3: Import memories into Mem0 Platform")
                 import_summary = import_platform_memories(output_path, api_key or "", base_url)
 
-        if import_summary is not None:
-            capture_migration_event(
-                "oss.migrate.completed",
-                anon_ids,
-                email=email,
-                additional={
-                    "base_url": base_url,
-                    "phase": "import",
-                    "exported": export_count,
-                    "imported": import_summary["imported"],
-                    "skipped_existing": import_summary["skipped_existing"],
-                    "changed_existing": import_summary["changed_existing"],
-                    "invalid": import_summary["invalid"],
-                    "failed": import_summary["failed"],
-                },
-            )
     except MigrationError as exc:
-        capture_migration_event(
-            "oss.migrate.failed",
-            anon_ids,
-            email=email,
-            additional={"error": str(exc), "base_url": base_url},
-        )
         print_error(str(exc))
         return 1
 

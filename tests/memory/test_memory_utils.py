@@ -5,7 +5,6 @@ import pytest
 from mem0.memory.utils import (
     parse_messages,
     parse_vision_messages,
-    process_telemetry_filters,
     remove_code_blocks,
     remove_spaces_from_entities,
     sanitize_relationship_for_cypher,
@@ -182,11 +181,6 @@ class TestRemoveSpacesFromEntities:
         f = remove_spaces_from_entities([dict(base)], sanitize_relationship=False)[0]["relationship"]
         assert t == sanitize_relationship_for_cypher("a/b")
         assert f == "a/b"
-
-
-class TestProcessTelemetryFilters:
-    def test_none_filters_returns_empty_list_and_dict(self):
-        assert process_telemetry_filters(None) == ([], {})
 
 
 class TestRemoveCodeBlocks:

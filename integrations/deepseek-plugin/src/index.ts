@@ -19,7 +19,6 @@ import { MemoryClient } from "mem0ai";
 import { formatMemoryList, formatAddResult } from "./formatting.ts";
 import { truncateOutput } from "./output.ts";
 import { resolveSearchFilters, resolveAddParams } from "./scoping.ts";
-import { captureEvent, errorKind } from "./telemetry.ts";
 import { createMemoryLifecycle } from "../../agent-plugin-core/typescript/src/lifecycle.ts";
 import {
   USER_RECALL_HEADING,
@@ -30,10 +29,9 @@ import {
 export const name = "mem0";
 export const inject = ["tools", "systemPrompt"];
 
-// Tags writes so Mem0's backend attributes them to this integration in
-// telemetry. Values outside the backend's KNOWN_EVENT_SOURCES allowlist bucket
-// into "OTHERS"; this one is added by mem0ai/platform#3602 and reads as OTHERS
-// until that ships.
+// Tags writes so Mem0's backend attributes them to this integration. Values
+// outside the backend's KNOWN_EVENT_SOURCES allowlist bucket into "OTHERS";
+// this one is added by mem0ai/platform#3602 and reads as OTHERS until that ships.
 const SOURCE = "DEEPSEEK_HARNESS";
 
 const DEFAULT_SEARCH_LIMIT = 10;
@@ -120,12 +118,6 @@ export function apply(ctx: Context, config: Config): void {
     return state;
   };
 
-  captureEvent("deepseek.plugin.mounted", {
-    has_host: Boolean(config.host),
-    auto_recall: config.autoRecall !== false,
-    auto_capture: config.autoCapture !== false,
-  }, client);
-
   if (config.autoRecall !== false) {
     ctx.on("system-prompt/assemble", async (_input, context, next): Promise<PromptAssembly> => {
       const assembly = await next();
@@ -140,28 +132,12 @@ export function apply(ctx: Context, config: Config): void {
       ).at(-1)?.content;
       if (!prompt) return assembly;
 
-      const memoryContext = await state.lifecycle.recall(prompt, true, async (query) => {
-        const started = Date.now();
-        try {
-          const result = await client.search(query, {
-            filters: resolveSearchFilters({}, userId),
-            topK: AUTO_RECALL_LIMIT,
-          });
-          captureEvent("deepseek.recall.auto", {
-            success: true,
-            duration_ms: Date.now() - started,
-            result_count: result.results?.length ?? 0,
-          }, client);
-          return result;
-        } catch (err) {
-          captureEvent("deepseek.recall.auto", {
-            success: false,
-            duration_ms: Date.now() - started,
-            error_kind: errorKind(err),
-          }, client);
-          throw err;
-        }
-      });
+      const memoryContext = await state.lifecycle.recall(prompt, true, (query) =>
+        client.search(query, {
+          filters: resolveSearchFilters({}, userId),
+          topK: AUTO_RECALL_LIMIT,
+        }),
+      );
       if (!memoryContext || signal?.aborted) return assembly;
       return {
         ...assembly,
@@ -185,14 +161,7 @@ export function apply(ctx: Context, config: Config): void {
         if (event.data.reason.kind !== "completed" || conversation.length === 0) return;
         void client
           .add(conversation, { userId, source: SOURCE })
-          .then(() => captureEvent("deepseek.capture.auto", {
-            success: true,
-            message_count: conversation.length,
-          }, client))
-          .catch((err: unknown) => captureEvent("deepseek.capture.auto", {
-            success: false,
-            error_kind: errorKind(err),
-          }, client));
+          .catch(() => {});
       }
     });
   }
@@ -219,42 +188,17 @@ export function apply(ctx: Context, config: Config): void {
         const safeQuery = toolLifecycle.prepareUserText(query);
         const filters = resolveSearchFilters({ userId: u, agentId, runId }, userId);
         const topK = limit && limit > 0 ? limit : DEFAULT_SEARCH_LIMIT;
-        const started = Date.now();
         try {
           const { results } = await client.search(safeQuery, { filters, topK });
-          captureEvent(
-            "deepseek.tool.search_memory",
-            {
-              success: true,
-              duration_ms: Date.now() - started,
-              top_k: topK,
-              result_count: results?.length ?? 0,
-              query_chars: query.length,
-              scope_overridden: Boolean(u && u !== userId),
-              has_agent_id: Boolean(agentId),
-              has_run_id: Boolean(runId),
-            },
-            client,
-          );
           return truncateOutput(formatMemoryList(results ?? []));
         } catch (err) {
-          captureEvent(
-            "deepseek.tool.search_memory",
-            {
-              success: false,
-              duration_ms: Date.now() - started,
-              top_k: topK,
-              error_kind: errorKind(err),
-            },
-            client,
-          );
           return `search_memory failed: ${err instanceof Error ? err.message : String(err)}`;
         }
       },
     }),
   );
 
-  // Write. `source` tags the memory for telemetry attribution.
+  // Write. `source` tags the memory with this integration.
   ctx.tools.register(
     defineTool({
       name: "add_memory",
@@ -270,7 +214,6 @@ export function apply(ctx: Context, config: Config): void {
           throw new Error("Cross-user access requires allowUserOverride in plugin configuration.");
         }
         const addParams = resolveAddParams({ userId: u, agentId, runId }, userId);
-        const started = Date.now();
         try {
           const result = await client.add(
             [{ role: "user", content: toolLifecycle.prepareUserText(text) }],
@@ -279,31 +222,8 @@ export function apply(ctx: Context, config: Config): void {
               source: SOURCE,
             },
           );
-          captureEvent(
-            "deepseek.tool.add_memory",
-            {
-              success: true,
-              duration_ms: Date.now() - started,
-              text_chars: text.length,
-              memory_count: Array.isArray(result) ? result.length : 0,
-              scope_overridden: Boolean(u && u !== userId),
-              has_agent_id: Boolean(agentId),
-              has_run_id: Boolean(runId),
-            },
-            client,
-          );
           return truncateOutput(formatAddResult(result));
         } catch (err) {
-          captureEvent(
-            "deepseek.tool.add_memory",
-            {
-              success: false,
-              duration_ms: Date.now() - started,
-              text_chars: text.length,
-              error_kind: errorKind(err),
-            },
-            client,
-          );
           return `add_memory failed: ${err instanceof Error ? err.message : String(err)}`;
         }
       },

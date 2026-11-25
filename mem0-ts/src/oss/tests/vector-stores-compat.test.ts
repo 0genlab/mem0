@@ -5214,10 +5214,6 @@ describe("Memory class – backward compat with all providers", () => {
       },
     }));
 
-    jest.doMock("../src/utils/telemetry", () => ({
-      captureClientEvent: jest.fn().mockResolvedValue(undefined),
-      isTelemetryEnabled: jest.fn(() => false),
-    }));
 
     MemoryClass = require("../src/memory").Memory;
   });

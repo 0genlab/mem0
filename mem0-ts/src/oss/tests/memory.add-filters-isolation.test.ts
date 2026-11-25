@@ -7,10 +7,6 @@
  *
  * search() and getAll() already build a fresh object from config.filters.
  */
-jest.mock("../src/utils/telemetry", () => ({
-  captureClientEvent: jest.fn().mockResolvedValue(undefined),
-  isTelemetryEnabled: jest.fn(() => false),
-}));
 
 import { Memory } from "../src/memory";
 

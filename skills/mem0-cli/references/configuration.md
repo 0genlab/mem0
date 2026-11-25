@@ -38,9 +38,6 @@ Saving an API key also updates an existing `env.MEM0_API_KEY` entry in `~/.claud
     "claimed_at": "",
     "default_user_id": ""
   },
-  "telemetry": {
-    "anonymous_id": ""
-  },
   "agent_rush": {
     "acknowledged_at": ""
   }
@@ -64,7 +61,6 @@ Saving an API key also updates an existing `env.MEM0_API_KEY` entry in `~/.claud
 | `platform.agent_caller` | string | `""` | Agent name set by `--agent-caller` or `mem0 identify`. |
 | `platform.claimed_at` | string | `""` | ISO timestamp once an Agent Mode account is claimed. |
 | `platform.default_user_id` | string | `""` | `user_<slug>` returned by the Agent Mode bootstrap. Printed by `mem0 whoami`. |
-| `telemetry.anonymous_id` | string | `""` | Persistent anonymous ID used for telemetry. |
 | `agent_rush.acknowledged_at` | string | `""` | ISO timestamp when the `agent-rush` public-memory warning was acknowledged. |
 
 ---
@@ -197,7 +193,6 @@ Environment variables override config file values but are overridden by CLI flag
 | `MEM0_AGENT_ID` | `defaults.agent_id` | string | `""` |
 | `MEM0_APP_ID` | `defaults.app_id` | string | `""` |
 | `MEM0_RUN_ID` | `defaults.run_id` | string | `""` |
-| `MEM0_TELEMETRY` | n/a | string | enabled. Set to `false` to disable anonymous telemetry. |
 
 ---
 

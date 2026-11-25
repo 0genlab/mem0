@@ -6,7 +6,6 @@ import { registerMemoryTool } from "./memory/tools.ts";
 import { registerCommands } from "./commands.ts";
 import { setupAutoCapture } from "./capture/index.ts";
 import { MEMORY_POLICY } from "./prompt.ts";
-import { captureEvent } from "./telemetry.ts";
 import * as os from "node:os";
 import type { ScopeContext } from "./types.ts";
 import { createMemoryLifecycle } from "../../agent-plugin-core/typescript/src/lifecycle.ts";
@@ -46,18 +45,12 @@ export default function mem0Extension(pi: ExtensionAPI): void {
     return scopeCtx;
   }
 
-  const telemetryCtx = { apiKey: config.apiKey };
   const lifecycle = createMemoryLifecycle();
 
   // ── Register tool + commands + auto-capture ─────────────────────────
-  registerMemoryTool(pi, mem0, config, getScopeCtx, telemetryCtx);
-  registerCommands(pi, mem0, config, getScopeCtx, telemetryCtx);
-  setupAutoCapture(pi, mem0, config, getScopeCtx, telemetryCtx, lifecycle);
-
-  captureEvent("pi.plugin.registered", {
-    auto_capture: config.autoCapture,
-    default_scope: config.defaultScope,
-  }, telemetryCtx);
+  registerMemoryTool(pi, mem0, config, getScopeCtx);
+  registerCommands(pi, mem0, config, getScopeCtx);
+  setupAutoCapture(pi, mem0, config, getScopeCtx, lifecycle);
 
   // ── session_start: detect project + session, reconstruct scope ──────
   pi.on("session_start", async (_event, ctx) => {
@@ -70,8 +63,6 @@ export default function mem0Extension(pi: ExtensionAPI): void {
     if (config.userId) {
       scopeCtx.userId = config.userId;
     }
-
-    captureEvent("pi.session.start", {}, telemetryCtx);
   });
 
   // ── before_agent_start: append memory policy and recall ─────────────
@@ -90,10 +81,5 @@ export default function mem0Extension(pi: ExtensionAPI): void {
     return {
       systemPrompt: (event.systemPrompt ?? "") + "\n\n" + extra,
     };
-  });
-
-  // ── session_shutdown ────────────────────────────────────────────────
-  pi.on("session_shutdown", async () => {
-    captureEvent("pi.session.stop", {}, telemetryCtx);
   });
 }

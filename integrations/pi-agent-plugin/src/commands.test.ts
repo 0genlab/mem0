@@ -2,10 +2,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { registerCommands } from "./commands.ts";
 import type { Mem0Config, ScopeContext } from "./types.ts";
 
-vi.mock("./telemetry.ts", () => ({
-  captureCommandEvent: vi.fn(),
-}));
-
 function makeMem0() {
   return {
     search: vi.fn(),

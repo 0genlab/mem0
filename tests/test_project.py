@@ -7,7 +7,7 @@ Verifies the kwarg → JSON payload mapping for every supported field
 is provided, and the URL/method shape. The HTTP layer is mocked.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -24,11 +24,10 @@ def project():
         json=lambda: {"message": "Updated"},
         raise_for_status=lambda: None,
     )
-    with patch("mem0.client.project.capture_client_event"):
-        from mem0.client.project import Project
+    from mem0.client.project import Project
 
-        proj = Project(client=http, org_id="org1", project_id="proj1")
-        yield proj, http
+    proj = Project(client=http, org_id="org1", project_id="proj1")
+    yield proj, http
 
 
 def _patch_payload(http):

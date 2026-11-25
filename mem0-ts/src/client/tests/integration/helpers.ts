@@ -2,7 +2,7 @@
  * Shared helpers for MemoryClient real integration tests.
  *
  * Provides environment gating, client factory, polling helpers,
- * and console suppression for telemetry noise.
+ * and console suppression for init noise.
  *
  * All helpers use only the SDK's public API — no internal method access.
  */
@@ -112,25 +112,15 @@ export async function waitForSearchResults(
 }
 
 /**
- * Suppress telemetry console noise during tests.
+ * Suppress client init console noise during tests.
  * Returns a cleanup function to call in afterAll.
  */
-export function suppressTelemetryNoise(): () => void {
+export function suppressInitNoise(): () => void {
   const originalError = console.error;
-  const originalWarn = console.warn;
 
   jest.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
-    if (
-      String(args[0] ?? "").match(
-        /Telemetry|Failed to initialize|Failed to capture/,
-      )
-    )
-      return;
+    if (String(args[0] ?? "").match(/Failed to initialize/)) return;
     originalError(...args);
-  });
-  jest.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
-    if (String(args[0] ?? "").match(/telemetry|Telemetry/)) return;
-    originalWarn(...args);
   });
 
   return () => jest.restoreAllMocks();

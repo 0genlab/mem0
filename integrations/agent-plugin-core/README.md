@@ -7,8 +7,8 @@ This directory is the single source of shared memory behavior for Mem0 coding-ag
 ```text
 integrations/
 ├── agent-plugin-core/       # Shared source; never installed as a plugin
-│   ├── python/              # Claude-derived capture, recall, MCP, scoping, and telemetry
-│   ├── typescript/          # Shared lifecycle, search prompts, formatting, identity, scoping, and telemetry
+│   ├── python/              # Claude-derived capture, recall, MCP, and scoping
+│   ├── typescript/          # Shared lifecycle, search prompts, formatting, identity, and scoping
 │   ├── skills/              # The only source for the six generated memory skills
 │   ├── build/               # Bundle builder, schemas, and validation
 │   ├── conformance/         # One offline/live verification entry point
@@ -104,7 +104,7 @@ For another native Python host:
 4. Register the host in `build/build.py` and `conformance/run.py`.
 5. Run `--sync`, `--check`, and the conformance command above.
 
-Keep capture, recall, memory scoping, redaction, skill text, and telemetry in this shared module. Host directories should contain only behavior required by their native SDK.
+Keep capture, recall, memory scoping, redaction, and skill text in this shared module. Host directories should contain only behavior required by their native SDK.
 
 For a TypeScript host, import the shared lifecycle modules directly and keep only native SDK registration in the integration. Do not advertise capture or compaction behavior unless the host exposes the necessary lifecycle seam. Sidekick is limited to Claude Code.
 

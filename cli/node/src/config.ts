@@ -36,10 +36,6 @@ export interface DefaultsConfig {
 	runId: string;
 }
 
-export interface TelemetryConfig {
-	anonymousId: string;
-}
-
 export interface AgentRushConfig {
 	// ISO timestamp the human acknowledged the "memories are public" warning.
 	// Empty until first interactive `mem0 agent-rush add`.
@@ -50,7 +46,6 @@ export interface Mem0Config {
 	version: number;
 	defaults: DefaultsConfig;
 	platform: PlatformConfig;
-	telemetry: TelemetryConfig;
 	agentRush: AgentRushConfig;
 }
 
@@ -72,9 +67,6 @@ export function createDefaultConfig(): Mem0Config {
 			agentCaller: "",
 			claimedAt: "",
 			defaultUserId: "",
-		},
-		telemetry: {
-			anonymousId: "",
 		},
 		agentRush: {
 			acknowledgedAt: "",
@@ -111,8 +103,6 @@ export function loadConfig(): Mem0Config {
 		config.defaults.agentId = defaults.agent_id ?? "";
 		config.defaults.appId = defaults.app_id ?? "";
 		config.defaults.runId = defaults.run_id ?? "";
-		const telemetry = data.telemetry ?? {};
-		config.telemetry.anonymousId = telemetry.anonymous_id ?? "";
 		const agentRush = data.agent_rush ?? {};
 		config.agentRush.acknowledgedAt = agentRush.acknowledged_at ?? "";
 	}
@@ -151,9 +141,6 @@ export function saveConfig(config: Mem0Config): void {
 			agent_caller: config.platform.agentCaller,
 			claimed_at: config.platform.claimedAt,
 			default_user_id: config.platform.defaultUserId,
-		},
-		telemetry: {
-			anonymous_id: config.telemetry.anonymousId,
 		},
 		agent_rush: {
 			acknowledged_at: config.agentRush.acknowledgedAt,

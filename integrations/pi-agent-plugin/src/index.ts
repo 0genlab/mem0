@@ -18,6 +18,5 @@ export { MEMORY_POLICY } from "./prompt.ts";
 
 export { registerCommands } from "./commands.ts";
 
-export { captureEvent, captureToolEvent, captureCommandEvent, _getEventQueue, _resetForTesting } from "./telemetry.ts";
 
 export { default as mem0Extension } from "./entry.ts";

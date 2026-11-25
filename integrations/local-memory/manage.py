@@ -122,7 +122,6 @@ def serve(config: dict) -> None:
     environment = {
         **os.environ,
         "PYTHONPATH": str(ROOT),
-        "MEM0_TELEMETRY": "false",
     }
     executable = config["python"]
     arguments = [
@@ -199,12 +198,12 @@ def prepare_plugins(path: Path, config: dict) -> Path:
         mcp_path = target / ".mcp.json"
         mcp = json.loads(mcp_path.read_text(encoding="utf-8"))
         server = mcp["mcpServers"].pop("mem0")
-        server.setdefault("env", {}).update({"MEM0_LOCAL_CONFIG": str(path), "MEM0_TELEMETRY": "false"})
+        server.setdefault("env", {}).update({"MEM0_LOCAL_CONFIG": str(path)})
         mcp["mcpServers"]["mem0-local"] = server
         write_private(mcp_path, (json.dumps(mcp, indent=2) + "\n").encode("utf-8"))
         hooks_path = target / "hooks/hooks.json"
         hooks = json.loads(hooks_path.read_text(encoding="utf-8"))
-        prefix = shlex.join(["env", f"MEM0_LOCAL_CONFIG={path}", "MEM0_TELEMETRY=false"])
+        prefix = shlex.join(["env", f"MEM0_LOCAL_CONFIG={path}"])
         for entries in hooks["hooks"].values():
             for entry in entries:
                 for hook in entry.get("hooks", []):

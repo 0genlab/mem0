@@ -18,7 +18,6 @@ dependencies = [
     "pydantic>=2.7.3",
     "openai>=1.90.0",
     "httpx>=0.28.0",
-    "posthog>=7.14.0",
     "pytz>=2024.1",
     "sqlalchemy>=2.0.31",
     "protobuf>=5.29.6,<7.0.0",
@@ -92,12 +91,10 @@ pythonpath = ["."]
 [tool.hatch.build]
 include = [
     "mem0/**/*.py",
-    "mem0/memory/oss_notices_config.json",
 ]
 exclude = [
     "**/*",
     "!mem0/**/*.py",
-    "!mem0/memory/oss_notices_config.json",
 ]
 
 [tool.hatch.build.targets.wheel]

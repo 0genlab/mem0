@@ -8,7 +8,6 @@ import Mem0Plugin from "./opencode-mem0";
 const originalKey = process.env.MEM0_API_KEY;
 const originalHome = process.env.HOME;
 const originalUserProfile = process.env.USERPROFILE;
-const originalTelemetry = process.env.MEM0_TELEMETRY;
 const originalFetch = globalThis.fetch;
 const testCleanups: Array<() => Promise<void> | void> = [];
 
@@ -22,8 +21,6 @@ afterEach(async () => {
   else process.env.HOME = originalHome;
   if (originalUserProfile === undefined) delete process.env.USERPROFILE;
   else process.env.USERPROFILE = originalUserProfile;
-  if (originalTelemetry === undefined) delete process.env.MEM0_TELEMETRY;
-  else process.env.MEM0_TELEMETRY = originalTelemetry;
   globalThis.fetch = originalFetch;
 });
 
@@ -115,7 +112,6 @@ describe("resolveApiKey", () => {
     delete process.env.MEM0_API_KEY;
     process.env.HOME = dir;
     process.env.USERPROFILE = dir;
-    process.env.MEM0_TELEMETRY = "false";
     stubFetch();
     testCleanups.push(captureDeferredPluginCleanup());
 
@@ -139,7 +135,6 @@ describe("resolveApiKey", () => {
     delete process.env.MEM0_API_KEY;
     process.env.HOME = dir;
     process.env.USERPROFILE = dir;
-    process.env.MEM0_TELEMETRY = "false";
     stubFetch();
     testCleanups.push(captureDeferredPluginCleanup());
 

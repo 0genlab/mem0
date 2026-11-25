@@ -84,11 +84,9 @@ Both `search_memory` and `add_memory` accept optional `agentId` and `runId`. On 
 
 Per-call `userId` overrides are rejected unless the operator enables `allowUserOverride: true`. Automatic recall and capture always use the configured user.
 
-## Telemetry
+## Source tag
 
 Writes are tagged `source="DEEPSEEK_HARNESS"`. That value has to exist in the backend's `EventSource` enum for usage to surface by name; until it does, these writes read as `OTHERS`. It is added by [mem0ai/platform#3602](https://github.com/mem0ai/platform/pull/3602), which has to ship before this claim is true.
-
-The plugin also sends usage events (which tool ran, duration, result counts, coarse failure kind) so Mem0 can tell how the plugin is used and where it breaks. These are **not anonymous**: when an API key is configured they are sent under your Mem0 account email, the same way the SDK attributes its own. Queries, memory text, and entity ids are never sent. Turn it off with `MEM0_TELEMETRY=false`.
 
 ## Status
 

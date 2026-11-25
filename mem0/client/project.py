@@ -6,7 +6,6 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
 from mem0.client.utils import api_error_handler
-from mem0.memory.telemetry import capture_client_event
 
 # Exception classes are referenced in docstrings only
 
@@ -346,11 +345,6 @@ class Project(BaseProject):
             params=params,
         )
         response.raise_for_status()
-        capture_client_event(
-            "client.project.get",
-            self,
-            {"fields": fields, "sync_type": "sync"},
-        )
         return response.json()
 
     @api_error_handler
@@ -384,11 +378,6 @@ class Project(BaseProject):
             json=payload,
         )
         response.raise_for_status()
-        capture_client_event(
-            "client.project.create",
-            self,
-            {"name": name, "description": description, "sync_type": "sync"},
-        )
         return response.json()
 
     @api_error_handler
@@ -449,18 +438,6 @@ class Project(BaseProject):
             json=payload,
         )
         response.raise_for_status()
-        capture_client_event(
-            "client.project.update",
-            self,
-            {
-                "custom_instructions": custom_instructions,
-                "custom_categories": custom_categories,
-                "multilingual": multilingual,
-                "decay": decay,
-                "agent_custom_instructions": agent_custom_instructions,
-                "sync_type": "sync",
-            },
-        )
         return response.json()
 
     @api_error_handler
@@ -482,11 +459,6 @@ class Project(BaseProject):
             f"/api/v1/orgs/organizations/{self.config.org_id}/projects/{self.config.project_id}/",
         )
         response.raise_for_status()
-        capture_client_event(
-            "client.project.delete",
-            self,
-            {"sync_type": "sync"},
-        )
         return response.json()
 
     @api_error_handler
@@ -508,11 +480,6 @@ class Project(BaseProject):
             f"/api/v1/orgs/organizations/{self.config.org_id}/projects/{self.config.project_id}/members/",
         )
         response.raise_for_status()
-        capture_client_event(
-            "client.project.get_members",
-            self,
-            {"sync_type": "sync"},
-        )
         return response.json()
 
     @api_error_handler
@@ -544,11 +511,6 @@ class Project(BaseProject):
             json=payload,
         )
         response.raise_for_status()
-        capture_client_event(
-            "client.project.add_member",
-            self,
-            {"email": email, "role": role, "sync_type": "sync"},
-        )
         return response.json()
 
     @api_error_handler
@@ -580,11 +542,6 @@ class Project(BaseProject):
             json=payload,
         )
         response.raise_for_status()
-        capture_client_event(
-            "client.project.update_member",
-            self,
-            {"email": email, "role": role, "sync_type": "sync"},
-        )
         return response.json()
 
     @api_error_handler
@@ -612,11 +569,6 @@ class Project(BaseProject):
             params=params,
         )
         response.raise_for_status()
-        capture_client_event(
-            "client.project.remove_member",
-            self,
-            {"email": email, "sync_type": "sync"},
-        )
         return response.json()
 
 
@@ -670,11 +622,6 @@ class AsyncProject(BaseProject):
             params=params,
         )
         response.raise_for_status()
-        capture_client_event(
-            "client.project.get",
-            self,
-            {"fields": fields, "sync_type": "async"},
-        )
         return response.json()
 
     @api_error_handler
@@ -708,11 +655,6 @@ class AsyncProject(BaseProject):
             json=payload,
         )
         response.raise_for_status()
-        capture_client_event(
-            "client.project.create",
-            self,
-            {"name": name, "description": description, "sync_type": "async"},
-        )
         return response.json()
 
     @api_error_handler
@@ -773,18 +715,6 @@ class AsyncProject(BaseProject):
             json=payload,
         )
         response.raise_for_status()
-        capture_client_event(
-            "client.project.update",
-            self,
-            {
-                "custom_instructions": custom_instructions,
-                "custom_categories": custom_categories,
-                "multilingual": multilingual,
-                "decay": decay,
-                "agent_custom_instructions": agent_custom_instructions,
-                "sync_type": "async",
-            },
-        )
         return response.json()
 
     @api_error_handler
@@ -806,11 +736,6 @@ class AsyncProject(BaseProject):
             f"/api/v1/orgs/organizations/{self.config.org_id}/projects/{self.config.project_id}/",
         )
         response.raise_for_status()
-        capture_client_event(
-            "client.project.delete",
-            self,
-            {"sync_type": "async"},
-        )
         return response.json()
 
     @api_error_handler
@@ -832,11 +757,6 @@ class AsyncProject(BaseProject):
             f"/api/v1/orgs/organizations/{self.config.org_id}/projects/{self.config.project_id}/members/",
         )
         response.raise_for_status()
-        capture_client_event(
-            "client.project.get_members",
-            self,
-            {"sync_type": "async"},
-        )
         return response.json()
 
     @api_error_handler
@@ -868,11 +788,6 @@ class AsyncProject(BaseProject):
             json=payload,
         )
         response.raise_for_status()
-        capture_client_event(
-            "client.project.add_member",
-            self,
-            {"email": email, "role": role, "sync_type": "async"},
-        )
         return response.json()
 
     @api_error_handler
@@ -904,11 +819,6 @@ class AsyncProject(BaseProject):
             json=payload,
         )
         response.raise_for_status()
-        capture_client_event(
-            "client.project.update_member",
-            self,
-            {"email": email, "role": role, "sync_type": "async"},
-        )
         return response.json()
 
     @api_error_handler
@@ -936,9 +846,4 @@ class AsyncProject(BaseProject):
             params=params,
         )
         response.raise_for_status()
-        capture_client_event(
-            "client.project.remove_member",
-            self,
-            {"email": email, "sync_type": "async"},
-        )
         return response.json()

@@ -28,18 +28,6 @@ import {
   ProfileSettings,
   ProfileSettingsResponse,
 } from "./mem0.types";
-import {
-  captureClientEvent,
-  generateHash,
-  isTelemetryEnabled,
-  telemetry,
-} from "./telemetry";
-import {
-  getOrCreateMem0UserId,
-  isMem0Aliased,
-  markMem0Aliased,
-  readMem0AnonIds,
-} from "./config";
 import { camelToSnake, camelToSnakeKeys, snakeToCamelKeys } from "./utils";
 import { createExceptionFromResponse, MemoryError } from "../common/exceptions";
 
@@ -121,7 +109,8 @@ interface ClientOptions {
 }
 
 interface ClientIdentity {
-  telemetryId: string;
+  userId: string;
+  resolved: boolean;
   organizationId: string | number | null;
   projectId: string | number | null;
 }
@@ -135,8 +124,7 @@ const identityByCredentials = new Map<string, Promise<ClientIdentity>>();
 
 declare const __MEM0_SDK_VERSION__: string | undefined;
 
-// Injected by tsup (see mem0-ts/tsup.config.ts `define`), the same mechanism
-// telemetry.ts already uses. A hardcoded literal goes stale at the next release
+// Injected by tsup (see mem0-ts/tsup.config.ts `define`). A hardcoded literal goes stale at the next release
 // bump and then misreports the client version forever.
 const SDK_VERSION =
   typeof __MEM0_SDK_VERSION__ !== "undefined" ? __MEM0_SDK_VERSION__ : "dev";
@@ -200,7 +188,7 @@ export default class MemoryClient {
   private projectId: string | number | null;
   headers: Record<string, string>;
   client: any;
-  telemetryId: string;
+  userId: string;
   private initialized: Promise<void>;
   private identityCacheMax: number;
 
@@ -238,9 +226,9 @@ export default class MemoryClient {
 
     this._validateApiKey();
 
-    this.telemetryId = "";
+    this.userId = "";
 
-    // Memory requests never wait on this; telemetry and _awaitIdentity do.
+    // Memory requests never wait on this; only _awaitIdentity does.
     this.initialized = this._resolveIdentity();
   }
 
@@ -258,11 +246,11 @@ export default class MemoryClient {
       identityByCredentials.set(credentials, shared);
       // A failed ping must not be cached, or the process never recovers.
       shared.then((identity) => {
-        if (!identity.telemetryId) identityByCredentials.delete(credentials);
+        if (!identity.resolved) identityByCredentials.delete(credentials);
       });
     }
     return shared.then((identity) => {
-      this.telemetryId = identity.telemetryId;
+      this.userId = identity.userId;
       if (identity.organizationId != null)
         this.organizationId = identity.organizationId;
       if (identity.projectId != null) this.projectId = identity.projectId;
@@ -275,72 +263,20 @@ export default class MemoryClient {
   }
 
   private async _initializeClient(): Promise<ClientIdentity> {
+    let resolved = false;
     try {
       await this.ping();
-
-      if (!this.telemetryId) {
-        this.telemetryId = generateHash(this.apiKey);
-      }
-
-      await this._maybeAliasAnonToEmail();
-
-      captureClientEvent("init", this, {
-        client_type: "MemoryClient",
-      }).catch((error: any) => {
-        console.error("Failed to capture event:", error);
-      });
+      resolved = true;
     } catch (error: any) {
       console.error("Failed to initialize client:", error);
-      await captureClientEvent("init_error", this, {
-        error: error?.message || "Unknown error",
-        stack: error?.stack || "No stack trace",
-      });
     }
 
     return {
-      telemetryId: this.telemetryId,
+      userId: this.userId,
+      resolved,
       organizationId: this.organizationId,
       projectId: this.projectId,
     };
-  }
-
-  private async _maybeAliasAnonToEmail(): Promise<void> {
-    if (!isTelemetryEnabled()) return;
-    try {
-      const email = this.telemetryId;
-      if (!email || !email.includes("@")) return;
-      const sharedAnonId = await getOrCreateMem0UserId();
-      const anonIds = await readMem0AnonIds();
-      if (!anonIds && !sharedAnonId) return;
-      const candidates = [anonIds?.oss || sharedAnonId, anonIds?.cli].filter(
-        (id): id is string => !!id && id !== email,
-      );
-      const seen = new Set<string>();
-      for (const anonId of candidates) {
-        if (seen.has(anonId) || (await isMem0Aliased(anonId, email))) continue;
-        seen.add(anonId);
-        if (await telemetry.captureIdentify(anonId, email)) {
-          await markMem0Aliased(anonId, email);
-        }
-      }
-    } catch (error: any) {
-      console.error("Failed to alias telemetry identity:", error);
-    }
-  }
-
-  private _captureEvent(methodName: string, args: any[]) {
-    // Deferred until ping() has resolved telemetryId, off the request path.
-    this.initialized
-      .then(() =>
-        captureClientEvent(methodName, this, {
-          success: true,
-          args_count: args.length,
-          keys: args.length > 0 ? args[0] : [],
-        }),
-      )
-      .catch((error: any) => {
-        console.error("Failed to capture event:", error);
-      });
   }
 
   /** Fetch with no key conversion, for payloads carrying user-controlled property names. */
@@ -350,7 +286,7 @@ export default class MemoryClient {
       headers: {
         ...options.headers,
         Authorization: `Token ${this.apiKey}`,
-        "Mem0-User-ID": this.telemetryId,
+        ...(this.userId ? { "Mem0-User-ID": this.userId } : {}),
       },
     });
     if (!response.ok) {
@@ -403,7 +339,7 @@ export default class MemoryClient {
 
       if (orgId) this.organizationId = orgId;
       if (projectId) this.projectId = projectId;
-      if (userEmail) this.telemetryId = userEmail;
+      if (userEmail) this.userId = userEmail;
     } catch (error: any) {
       // Pass through structured exceptions and APIError
       if (error instanceof MemoryError || error instanceof APIError) {
@@ -428,7 +364,6 @@ export default class MemoryClient {
 
     const payload = this._preparePayload(messages, options);
     const payloadKeys = Object.keys(payload);
-    this._captureEvent("add", [payloadKeys]);
 
     const response = await this._fetchWithErrorHandling(
       `${this.host}/v3/memories/add/`,
@@ -473,7 +408,6 @@ export default class MemoryClient {
     if (expirationDate !== undefined) payload.expiration_date = expirationDate;
 
     const payloadKeys = Object.keys(payload);
-    this._captureEvent("update", [payloadKeys]);
 
     const response = await this._fetchWithErrorHandling(
       `${this.host}/v1/memories/${encodePathSegment(memoryId)}/`,
@@ -487,7 +421,6 @@ export default class MemoryClient {
   }
 
   async get(memoryId: string): Promise<Memory> {
-    this._captureEvent("get", []);
     return this._fetchWithErrorHandling(
       `${this.host}/v1/memories/${encodePathSegment(memoryId)}/`,
       {
@@ -501,7 +434,6 @@ export default class MemoryClient {
     rejectTopLevelEntityParams(options as Record<string, any>, "getAll");
 
     const payloadKeys = Object.keys(options || {});
-    this._captureEvent("get_all", [payloadKeys]);
     const { page, pageSize, filters, ...rest } = options ?? {};
     const body: Record<string, any> = {
       ...camelToSnakeKeys(rest),
@@ -529,7 +461,6 @@ export default class MemoryClient {
     rejectTopLevelEntityParams(options as Record<string, any>, "search");
 
     const payloadKeys = Object.keys(options || {});
-    this._captureEvent("search", [payloadKeys]);
     const { filters, ...rest } = options ?? {};
     const payload: Record<string, any> = {
       query,
@@ -553,7 +484,6 @@ export default class MemoryClient {
     memoryId: string,
     options: DeleteMemoryOptions = {},
   ): Promise<{ message: string }> {
-    this._captureEvent("delete", [Object.keys(options || {})]);
     const snakeOptions = camelToSnakeKeys(this._prepareParams(options));
     // @ts-ignore
     const query = new URLSearchParams(snakeOptions).toString();
@@ -572,7 +502,6 @@ export default class MemoryClient {
     rejectFilters(options, "deleteAll");
     rejectBlankEntityIds(options);
     const payloadKeys = Object.keys(options || {});
-    this._captureEvent("delete_all", [payloadKeys]);
     const snakeOptions = camelToSnakeKeys(this._prepareParams(options));
     // @ts-ignore
     const params = new URLSearchParams(snakeOptions);
@@ -587,7 +516,6 @@ export default class MemoryClient {
   }
 
   async history(memoryId: string): Promise<Array<MemoryHistory>> {
-    this._captureEvent("history", []);
     const response = await this._fetchWithErrorHandling(
       `${this.host}/v1/memories/${encodePathSegment(memoryId)}/history/`,
       {
@@ -601,7 +529,6 @@ export default class MemoryClient {
     page?: number;
     pageSize?: number;
   }): Promise<AllUsers> {
-    this._captureEvent("users", []);
     let url = `${this.host}/v1/entities/`;
     const params: string[] = [];
     if (options?.page) params.push(`page=${options.page}`);
@@ -620,7 +547,6 @@ export default class MemoryClient {
     entity_id: number;
     entity_type: string;
   }): Promise<{ message: string }> {
-    this._captureEvent("delete_user", []);
     if (!data.entity_type) {
       data.entity_type = "user";
     }
@@ -684,10 +610,6 @@ export default class MemoryClient {
       }
     }
 
-    this._captureEvent("delete_users", [
-      { userId, agentId, appId, runId, sync_type: "sync" },
-    ]);
-
     return {
       message:
         userId || agentId || appId || runId
@@ -697,7 +619,6 @@ export default class MemoryClient {
   }
 
   async batchUpdate(memories: Array<MemoryUpdateBody>): Promise<string> {
-    this._captureEvent("batch_update", []);
     const memoriesBody = memories.map((memory) => ({
       memory_id: memory.memoryId,
       text: memory.text,
@@ -714,7 +635,6 @@ export default class MemoryClient {
   }
 
   async batchDelete(memories: Array<string>): Promise<string> {
-    this._captureEvent("batch_delete", []);
     const memoriesBody = memories.map((memory) => ({
       memory_id: memory,
     }));
@@ -731,7 +651,6 @@ export default class MemoryClient {
 
   async getProject(options: ProjectOptions): Promise<ProjectResponse> {
     const payloadKeys = Object.keys(options || {});
-    this._captureEvent("get_project", [payloadKeys]);
     const { fields } = options;
     await this._awaitIdentity();
 
@@ -756,7 +675,6 @@ export default class MemoryClient {
   async updateProject(
     prompts: PromptUpdatePayload,
   ): Promise<Record<string, any>> {
-    this._captureEvent("update_project", []);
     await this._awaitIdentity();
     if (!(this.organizationId && this.projectId)) {
       throw new Error(
@@ -777,7 +695,6 @@ export default class MemoryClient {
 
   // WebHooks
   async getWebhooks(data?: { projectId?: string }): Promise<Array<Webhook>> {
-    this._captureEvent("get_webhooks", []);
     if (!data?.projectId) await this._awaitIdentity();
     const project_id = data?.projectId || this.projectId;
     if (!project_id) {
@@ -793,7 +710,6 @@ export default class MemoryClient {
   }
 
   async createWebhook(webhook: WebhookCreatePayload): Promise<Webhook> {
-    this._captureEvent("create_webhook", []);
     await this._awaitIdentity();
     if (!this.projectId) {
       throw new Error("projectId must be set to create a webhook");
@@ -817,7 +733,6 @@ export default class MemoryClient {
   async updateWebhook(
     webhook: WebhookUpdatePayload,
   ): Promise<{ message: string }> {
-    this._captureEvent("update_webhook", []);
     const body: Record<string, any> = {};
     if (webhook.name != null) body.name = webhook.name;
     if (webhook.url != null) body.url = webhook.url;
@@ -836,7 +751,6 @@ export default class MemoryClient {
   async deleteWebhook(data: {
     webhookId: string;
   }): Promise<{ message: string }> {
-    this._captureEvent("delete_webhook", []);
     const webhook_id = data.webhookId || data;
     const response = await this._fetchWithErrorHandling(
       `${this.host}/api/v1/webhooks/${webhook_id}/`,
@@ -850,7 +764,6 @@ export default class MemoryClient {
 
   async feedback(data: FeedbackPayload): Promise<{ message: string }> {
     const payloadKeys = Object.keys(data || {});
-    this._captureEvent("feedback", [payloadKeys]);
     const response = await this._fetchWithErrorHandling(
       `${this.host}/v1/feedback/`,
       {
@@ -869,7 +782,6 @@ export default class MemoryClient {
    * so a known user without a profile yet is a normal response.
    */
   async getProfile(data: { entityId: string }): Promise<ProfileResponse> {
-    this._captureEvent("get_profile", []);
     await this._awaitIdentity();
 
     const response = await this._fetchWithErrorHandling(
@@ -895,7 +807,6 @@ export default class MemoryClient {
     entityId: string;
     idempotencyKey?: string;
   }): Promise<ProfileJobResponse> {
-    this._captureEvent("generate_profile", []);
     await this._awaitIdentity();
 
     const response = await this._fetchWithErrorHandling(
@@ -918,7 +829,6 @@ export default class MemoryClient {
 
   /** Get the profile settings for the current project. */
   async getProfileSettings(): Promise<ProfileSettingsResponse> {
-    this._captureEvent("get_profile_settings", []);
     await this._awaitIdentity();
 
     const raw = await this._fetchRawJson(`${this.host}/v2/profiles/settings/`, {
@@ -970,7 +880,6 @@ export default class MemoryClient {
     settings: ProfileSettings,
   ): Promise<ProfileSettingsResponse> {
     const payloadKeys = Object.keys(settings || {});
-    this._captureEvent("update_profile_settings", [payloadKeys]);
     await this._awaitIdentity();
 
     const { schema, customInstructions, enabled } = settings || {};
@@ -1010,7 +919,6 @@ export default class MemoryClient {
     limit?: number;
     idempotencyKey?: string;
   }): Promise<ProfileJobResponse> {
-    this._captureEvent("sample_profiles", []);
     await this._awaitIdentity();
 
     const response = await this._fetchWithErrorHandling(
@@ -1051,8 +959,6 @@ export default class MemoryClient {
   async createMemoryExport(
     data: CreateMemoryExportPayload,
   ): Promise<{ message: string; id: string }> {
-    this._captureEvent("create_memory_export", []);
-
     if (!data.filters || !data.schema) {
       throw new Error("Missing filters or schema");
     }
@@ -1080,8 +986,6 @@ export default class MemoryClient {
   async getMemoryExport(
     data: GetMemoryExportPayload,
   ): Promise<{ message: string; id: string }> {
-    this._captureEvent("get_memory_export", []);
-
     if (!data.memoryExportId && !data.filters) {
       throw new Error("Missing memoryExportId or filters");
     }
